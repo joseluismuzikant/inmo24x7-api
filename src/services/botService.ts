@@ -1,154 +1,229 @@
+import { openai } from "./openaiClient.js";
 import { getSession, setSession, resetSession } from "./sessionStore.js";
 import { searchProperties } from "./propertyService.js";
-import { BotReply, Operation } from "../types/types.js";
+import type { BotReply, Property, ChatMsg, Operation } from "../types/types.js";
 
-// Helpers simples
-function normalizeText(t: string) {
-  return t.trim().toLowerCase();
+function formatProps(props: Property[]) {
+  return props.map((p, idx) => {
+    const link = p.link ? `\nLink: ${p.link}` : "";
+    return `**${idx + 1}. ${p.titulo}**\nZona: ${p.zona}\nPrecio: ${
+      p.precio
+    }${link}`;
+  });
 }
 
-function parseOperation(text: string): Operation | null {
-  const t = normalizeText(text);
-  if (t.includes("alquiler") || t.includes("alquilar") || t === "alquilo") return "alquiler";
-  if (t.includes("venta") || t.includes("comprar") || t === "compro") return "venta";
-  return null;
+function keepLast(history: ChatMsg[], max = 10) {
+  return history.slice(-max);
 }
 
-function parseBudget(text: string): number | null {
-  // Saca números tipo "1200", "1.200", "1,200", "usd 1200"
-  const cleaned = text.replace(/[^\d.,]/g, "");
-  if (!cleaned) return null;
+const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
-  // Heurística simple: si tiene ambos, asumimos separador de miles
-  const normalized = cleaned.replace(/\./g, "").replace(/,/g, "");
-  const n = Number(normalized);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
+const SYSTEM_PROMPT = `
+Sos Inmo24x7, asistente virtual de una inmobiliaria.
+Objetivo: calificar el lead (operación, zona, presupuesto) y mostrar SOLO propiedades disponibles del listado.
+Reglas:
+- No inventes propiedades ni precios.
+- Hacé una pregunta por mensaje. Máximo 3 preguntas seguidas.
+- Si el usuario confirma interés ("sí", "quiero visitar", etc.), ofrecé derivarlo a un asesor.
+- Si faltan datos, preguntá lo mínimo necesario.
+- Respuestas cortas, claras y en español rioplatense.
+`;
 
-export async function botReply(args: { userId: string; text: string }): Promise<BotReply> {
+export async function botReply(args: {
+  userId: string;
+  text: string;
+}): Promise<BotReply> {
   const { userId, text } = args;
-  const t = normalizeText(text);
 
-  // comandos útiles de demo
-  if (t === "/reset") {
+  // comando útil
+  if (text.trim().toLowerCase() === "/reset") {
     resetSession(userId);
-    return { messages: ["Listo ✅ Reinicié la conversación. ¿Buscás comprar o alquilar?"] };
+    return {
+      messages: [
+        "Listo ✅ Reinicié la conversación. ¿Buscás comprar o alquilar?",
+      ],
+    };
   }
 
   const session = getSession(userId);
+  const history: ChatMsg[] = session.history ?? [];
 
-  // flujo por pasos (determinístico). Después lo cambiás por LLM + function calling.
-  switch (session.step) {
-    case "start": {
-      const next = { ...session, step: "ask_operation" as const };
-      setSession(userId, next);
+  // agrego el mensaje del usuario al historial
+  const nextHistory = keepLast(
+    [...history, { role: "user", content: text }],
+    10
+  );
+
+  // tools que el modelo puede llamar
+  const tools = [
+    {
+      type: "function" as const,
+      function: {
+        name: "buscarPropiedades",
+        description:
+          "Busca propiedades disponibles según operación, zona y presupuesto máximo. Devuelve hasta 3 opciones.",
+        parameters: {
+          type: "object",
+          properties: {
+            operacion: { type: "string", enum: ["venta", "alquiler"] },
+            zona: { type: "string" },
+            presupuestoMax: { type: "number" },
+          },
+          required: ["operacion", "zona", "presupuestoMax"],
+        },
+      },
+    },
+    {
+      type: "function" as const,
+      function: {
+        name: "derivarAHumano",
+        description:
+          "Marca el lead como listo para asesor humano. Debe incluir un resumen corto del caso.",
+        parameters: {
+          type: "object",
+          properties: {
+            summary: { type: "string" },
+          },
+          required: ["summary"],
+        },
+      },
+    },
+  ];
+
+  // 1) Llamada al modelo (puede pedir tool calls)
+  let resp;
+  try {
+    resp = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...nextHistory.map((m) => ({ role: m.role, content: m.content })),
+      ],
+      tools,
+      tool_choice: "auto",
+    });
+  } catch (err: any) {
+    // 429 quota/rate limit
+    if (err?.status === 429) {
       return {
         messages: [
-          "Hola 👋 Soy Inmo24x7, el asistente virtual de la inmobiliaria.",
-          "¿Buscás **comprar** o **alquilar**?"
-        ]
+          "Ahora mismo estoy sin cupo de IA ⚠️ (demo).",
+          "¿Buscás comprar o alquilar?",
+        ],
       };
     }
-
-    case "ask_operation": {
-      const op = parseOperation(text);
-      if (!op) {
-        return { messages: ["¿Me confirmás si es **compra (venta)** o **alquiler**?"] };
-      }
-      const next = { ...session, operacion: op, step: "ask_zone" as const };
-      setSession(userId, next);
-      return { messages: ["Genial. ¿En qué **zona/barrio** estás buscando? (Ej: Palermo, Caballito)"] };
-    }
-
-    case "ask_zone": {
-      const zona = text.trim();
-      if (zona.length < 2) return { messages: ["Decime una zona/barrio (por ejemplo: Palermo)."] };
-
-      const next = { ...session, zona, step: "ask_budget" as const };
-      setSession(userId, next);
-      return { messages: ["Perfecto. ¿Cuál es tu **presupuesto máximo**? (solo número, ej: 1200 o 120000)"] };
-    }
-
-    case "ask_budget": {
-      const presupuestoMax = parseBudget(text);
-      if (!presupuestoMax) {
-        return { messages: ["No llegué a leer el número 😅 ¿Cuál es tu **presupuesto máximo**? Ej: 1200"] };
-      }
-
-      const operacion = session.operacion!;
-      const zona = session.zona!;
-
-      const results = searchProperties({ operacion, zona, presupuestoMax, limit: 3 });
-
-      if (results.length === 0) {
-        const next = { ...session, presupuestoMax, lastProperties: [], step: "show_results" as const };
-        setSession(userId, next);
-        return {
-          messages: [
-            `Con **${operacion}**, zona **${zona}** y presupuesto **${presupuestoMax}**, no encontré opciones disponibles ahora.`,
-            "¿Querés que probemos con otra zona o ajustamos el presupuesto?"
-          ]
-        };
-      }
-
-      const lines = results.map((p, idx) => {
-        const link = p.link ? `\nLink: ${p.link}` : "";
-        return `**${idx + 1}. ${p.titulo}**\nZona: ${p.zona}\nPrecio: ${p.precio}${link}`;
-      });
-
-      const next = { ...session, presupuestoMax, lastProperties: results, step: "show_results" as const };
-      setSession(userId, next);
-
-      return {
-        messages: [
-          "Encontré estas opciones disponibles 👇",
-          ...lines,
-          "¿Querés que te ponga en contacto con un asesor para coordinar visita? (sí/no)"
-        ]
-      };
-    }
-
-    case "show_results": {
-      if (t.startsWith("s") || t.includes("si") || t.includes("sí")) {
-        setSession(userId, { ...session, step: "handoff" });
-        const summary = [
-          `Operación: ${session.operacion}`,
-          `Zona: ${session.zona}`,
-          `Presupuesto máx: ${session.presupuestoMax}`,
-          `Opciones: ${(session.lastProperties ?? []).map((p) => p.id).join(", ") || "N/A"}`
-        ].join(" | ");
-
-        return {
-          messages: [
-            "Perfecto ✅ Te paso con un asesor humano para coordinar la visita.",
-            "¿Me compartís tu **nombre** y un **teléfono** de contacto?"
-          ],
-          handoff: { summary }
-        };
-      }
-
-      if (t.startsWith("n")) {
-        // si dice "no", le damos alternativa rápida
-        return { messages: ["Ok 👍 ¿Querés probar con **otra zona** o con **otro presupuesto**? (escribime cuál)"] };
-      }
-
-      // Si el usuario responde otra cosa, lo guiamos
-      return { messages: ["Decime **sí** para coordinar visita o **no** para ajustar búsqueda."] };
-    }
-
-    case "handoff": {
-      // MVP: solo simulamos handoff. Después acá mandás a WhatsApp del asesor / email / CRM.
-      resetSession(userId);
-      return {
-        messages: [
-          "Gracias 🙌 Un asesor te va a escribir a la brevedad.",
-          "Si querés empezar otra búsqueda, escribí cualquier cosa o /reset."
-        ]
-      };
-    }
-
-    default:
-      resetSession(userId);
-      return { messages: ["Ups, me perdí 😅 Escribí /reset y arrancamos de nuevo."] };
+    throw err;
   }
+  const msg = resp.choices[0]?.message;
+  if (!msg) {
+    return { messages: ["Tuve un problema 😅 ¿me repetís eso?"] };
+  }
+
+  // Si el modelo pidió llamar herramientas
+  if (msg.tool_calls && msg.tool_calls.length > 0) {
+    const toolResults: {
+      role: "tool";
+      tool_call_id: string;
+      content: string;
+    }[] = [];
+
+    for (const tc of msg.tool_calls) {
+      if (tc.type === "function") {
+        const name = tc.function.name;
+        const argsJson = tc.function.arguments ?? "{}";
+        const parsed = JSON.parse(argsJson);
+
+        if (name === "buscarPropiedades") {
+          const operacion = parsed.operacion as Operation;
+          const zona = String(parsed.zona);
+          const presupuestoMax = Number(parsed.presupuestoMax);
+
+          const results = searchProperties({
+            operacion,
+            zona,
+            presupuestoMax,
+            limit: 3,
+          });
+
+          toolResults.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: JSON.stringify({ results }),
+          });
+        }
+
+        if (name === "derivarAHumano") {
+          toolResults.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: JSON.stringify({
+              ok: true,
+              summary: String(parsed.summary),
+            }),
+          });
+        }
+      }
+    }
+
+    // 2) Segunda llamada: el modelo redacta la respuesta final usando resultados de tools
+    const resp2 = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...nextHistory.map((m) => ({ role: m.role, content: m.content })),
+        // mensaje assistant que contiene tool_calls
+        {
+          role: "assistant",
+          content: msg.content ?? "",
+          tool_calls: msg.tool_calls,
+        },
+        ...toolResults,
+      ],
+    });
+
+    const finalMsg = resp2.choices[0]?.message?.content?.trim();
+    if (!finalMsg)
+      return { messages: ["Ok. ¿Querés que te muestre opciones?"] };
+
+    // Persistimos historial con la respuesta final
+    const updatedHistory = keepLast(
+      [...nextHistory, { role: "assistant", content: finalMsg }],
+      10
+    );
+    setSession(userId, { ...session, history: updatedHistory });
+
+    // Si el modelo pidió derivar, lo detectamos desde toolResults
+    const handoffTool = toolResults.find((t) =>
+      t.content.includes('"summary"')
+    );
+    if (handoffTool) {
+      const parsed = JSON.parse(handoffTool.content);
+      // opcional: reset sesión si ya derivó
+      // resetSession(userId);
+
+      return {
+        messages: [finalMsg],
+        handoff: { summary: parsed.summary ?? "Lead interesado" },
+      };
+    }
+
+    // Bonus: si se devolvieron propiedades, podés post-procesar para mostrar más lindo (opcional)
+    // Pero ya debería venir en finalMsg.
+
+    return { messages: [finalMsg] };
+  }
+
+  // Si no hubo tool calls, el modelo respondió directo (ej: pregunta)
+  const content = (msg.content ?? "").trim();
+  if (!content)
+    return { messages: ["¿Me decís si buscás comprar o alquilar?"] };
+
+  // Guardar historial
+  const updatedHistory = keepLast(
+    [...nextHistory, { role: "assistant", content }],
+    10
+  );
+  setSession(userId, { ...session, history: updatedHistory });
+
+  return { messages: [content] };
 }

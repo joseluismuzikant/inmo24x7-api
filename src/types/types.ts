@@ -10,12 +10,15 @@ export type Property = {
   disponible: boolean;
 };
 
+export type ChatMsg = { role: "user" | "assistant"; content: string };
+
 export type SessionState = {
   step: "start" | "ask_operation" | "ask_zone" | "ask_budget" | "show_results" | "handoff";
   operacion?: Operation;
   zona?: string;
   presupuestoMax?: number;
-  lastProperties?: Property[];
+  lastProperties?: Property[];   
+  history?: ChatMsg[];
 };
 
 export type BotReply = {
@@ -24,3 +27,4 @@ export type BotReply = {
     summary: string;
   };
 };
+
