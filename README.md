@@ -10,6 +10,15 @@ Asistente virtual de inmobiliaria con integración de OpenAI y SQLite.
 - Handoff a asesor humano
 - Sesiones en memoria por userId
 
+## Dataset
+
+Este proyecto utiliza el dataset de propiedades de Zonaprop Argentina proporcionado por [Luminati.io](https://github.com/luminati-io/Zonaprop-Argentina-dataset-samples).
+
+- **Fuente:** https://github.com/luminati-io/Zonaprop-Argentina-dataset-samples
+- **Ubicación:** `src/data/zonaprop-argentina-dataset.csv`
+- **Propiedades:** ~955 propiedades reales de Argentina
+- **Zonas disponibles:** Capital Federal, GBA Norte/Sur/Oeste, Buenos Aires Costa Atlántica, Córdoba, Mendoza, Santa Fe, y más
+
 ## Requisitos
 
 - Node.js 18+

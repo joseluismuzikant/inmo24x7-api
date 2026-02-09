@@ -1,17 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
 import { Property, Operation } from "../types/types.js";
-
-let cache: Property[] | null = null;
-
-function loadProperties(): Property[] {
-  if (cache) return cache;
-  const filePath = path.join(process.cwd(), "src", "data", "properties.json");
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const data = JSON.parse(raw) as Property[];
-  cache = data;
-  return data;
-}
+import { loadPropertiesFromCSV } from "./propertyLoader.js";
 
 export function searchProperties(args: {
   operacion: Operation;
@@ -20,7 +8,7 @@ export function searchProperties(args: {
   limit?: number;
 }): Property[] {
   const { operacion, zona, presupuestoMax, limit = 3 } = args;
-  const properties = loadProperties();
+  const properties = loadPropertiesFromCSV();
 
   const normZona = zona.trim().toLowerCase();
 
