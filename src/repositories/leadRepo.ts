@@ -100,3 +100,15 @@ export function deleteLead(leadId: number): void {
   const stmt = db.prepare("DELETE FROM leads WHERE id = @leadId");
   stmt.run({ leadId });
 }
+
+export function listLeads(limit = 50) {
+  return db
+    .prepare(`
+      SELECT *
+      FROM leads
+      ORDER BY createdAt DESC
+      LIMIT ?
+    `)
+    .all(limit);
+}
+

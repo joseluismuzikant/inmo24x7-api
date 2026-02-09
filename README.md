@@ -142,6 +142,27 @@ DELETE /api/leads/:id
 - `400` - Invalid lead ID
 - `500` - Failed to delete lead
 
+### Panel de Administración (Web)
+
+#### Ver todos los leads (Interfaz web)
+
+```http
+GET /admin/leads
+```
+
+Muestra una interfaz HTML con tabla de todos los leads capturados. Incluye:
+- Listado de leads con ID, fecha, operación, zona, presupuesto, nombre, contacto y resumen
+- Enlaces para ver detalle de cada lead
+- Botón para refrescar la lista
+
+#### Ver detalle de un lead (Interfaz web)
+
+```http
+GET /admin/leads/:id
+```
+
+Muestra página HTML con información detallada del lead específico.
+
 ### Archivos estáticos
 
 ```http
