@@ -46,6 +46,31 @@ Este proyecto utiliza el dataset de propiedades de Zonaprop Argentina proporcion
 - **Propiedades:** ~955 propiedades reales de Argentina
 - **Zonas disponibles:** Capital Federal, GBA Norte/Sur/Oeste, Buenos Aires Costa Atlántica, Córdoba, Mendoza, Santa Fe, y más
 
+## Fuentes de Datos de Propiedades
+
+El sistema soporta múltiples fuentes de datos configurables mediante la variable de entorno `PROPERTY_LOADER`:
+
+| Fuente | Valor | Descripción |
+|--------|-------|-------------|
+| CSV | `csv` (default) | Carga desde archivo CSV local (`src/data/zonaprop-argentina-dataset.csv`) |
+| JSON | `json` | Carga desde archivo JSON local (`src/data/properties.json`) |
+| Supabase | `supabase` | Carga desde base de datos Supabase en tiempo real |
+
+### Configuración de Supabase
+
+Para usar Supabase como fuente de datos:
+
+1. Establece las variables en `.env`:
+```env
+PROPERTY_LOADER=supabase
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_ANON_KEY=tu-anon-key
+```
+
+2. Asegúrate de tener las tablas `zp_postings` y `zp_posting_pictures` en Supabase
+
+3. La tabla `zp_postings` debe contener las columnas: id, url, title, operation_type, price_amount, price_currency, location_name, city_name, state_acronym, latitude, longitude, status, publisher_name, whatsapp, main_features, general_features
+
 ## Requisitos
 
 - Node.js 18+
@@ -219,9 +244,19 @@ Sirve la interfaz web de chat desde `src/public/index.html`
 ## Variables de entorno
 
 ```env
+# OpenAI Configuration
 OPENAI_API_KEY=tu_api_key_aqui
 OPENAI_MODEL=gpt-4.1-mini  # opcional, default: gpt-4.1-mini
+
+# Server Configuration
 PORT=3000                  # opcional, default: 3000
+
+# Property Loader Configuration
+PROPERTY_LOADER=csv        # opciones: csv | json | supabase (default: csv)
+
+# Supabase Configuration (required if PROPERTY_LOADER=supabase)
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_ANON_KEY=tu-anon-key
 ```
 
 ## Estructura del proyecto

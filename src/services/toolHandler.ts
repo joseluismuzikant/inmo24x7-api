@@ -2,7 +2,7 @@ import { searchProperties } from "./propertyService";
 import { leadService } from "./leadService";
 import { ensureLeadData, getLeadId, setLeadId } from "./sessionService";
 import { parseBuscarPropiedadesArgs, parseDerivarAHumanoArgs, parseGuardarContactoArgs } from "./toolParser";
-import type { SessionState } from "../types/types";
+import type { SessionState, Property } from "../types/types";
 
 export interface ToolResult {
   role: "tool";
@@ -20,15 +20,18 @@ export interface ToolExecutionResult {
 }
 
 class ToolExecutor {
-  executeBuscarPropiedades(
+  async executeBuscarPropiedades(
     args: unknown,
     session: SessionState,
     userId: string
-  ): { properties: ReturnType<typeof searchProperties>; leadId?: number } {
+  ): Promise<{ results: Property[]; allWithinBudget: boolean; suggestedBudget?: number; leadId?: number }> {
     const parsedArgs = parseBuscarPropiedadesArgs(args);
     if (!parsedArgs) {
-      return { properties: [] };
+      console.log("⚠️ buscarPropiedades: Invalid arguments");
+      return { results: [], allWithinBudget: true };
     }
+
+    console.log(`🔍 Searching: ${parsedArgs.operacion} in ${parsedArgs.zona} up to $${parsedArgs.presupuestoMax}`);
 
     const data = ensureLeadData(session);
     data.operacion = parsedArgs.operacion;
@@ -36,12 +39,19 @@ class ToolExecutor {
     data.presupuestoMax = parsedArgs.presupuestoMax;
 
     // Search properties
-    const properties = searchProperties({
+    const searchResult = await searchProperties({
       operacion: parsedArgs.operacion,
       zona: parsedArgs.zona,
       presupuestoMax: parsedArgs.presupuestoMax,
-      limit: 3,
+      limit: 10,
     });
+
+    console.log(`✅ Search results: ${searchResult.results.length} properties, ${searchResult.propertiesWithinBudget} within budget`);
+    if (searchResult.results.length > 0) {
+      searchResult.results.forEach((p, i) => {
+        console.log(`  ${i + 1}. ${p.titulo?.substring(0, 40)}... - $${p.precio} - Link: ${p.link?.substring(0, 50)}...`);
+      });
+    }
 
     // Create or update lead in background
     const leadId = leadService.loadOrCreateLead(userId, data, getLeadId(session));
@@ -49,7 +59,11 @@ class ToolExecutor {
       setLeadId(session, leadId);
     }
 
-    return { properties, leadId };
+    return { 
+      results: searchResult.results, 
+      allWithinBudget: searchResult.propertiesWithinBudget === searchResult.results.length,
+      leadId 
+    };
   }
 
   executeDerivarAHumano(
@@ -113,11 +127,11 @@ class ToolExecutor {
 
 const toolExecutor = new ToolExecutor();
 
-export function executeToolCalls(
+export async function executeToolCalls(
   toolCalls: Array<{ id: string; function: { name: string; arguments?: string } }>,
   session: SessionState,
   userId: string
-): ToolExecutionResult {
+): Promise<ToolExecutionResult> {
   const results: ToolResult[] = [];
   let handoff: HandoffData | undefined;
 
@@ -128,11 +142,26 @@ export function executeToolCalls(
 
     switch (name) {
       case "buscarPropiedades": {
-        const result = toolExecutor.executeBuscarPropiedades(args, session, userId);
+        const result = await toolExecutor.executeBuscarPropiedades(args, session, userId);
+        // Pass full property details including real URLs
+        const propertiesWithUrls = result.results.map(p => ({
+          id: p.id,
+          titulo: p.titulo,
+          precio: p.precio,
+          zona: p.zona,
+          link: p.link, // CRITICAL: Real URL from database
+          tipo: p.tipo,
+          ambientes: p.ambientes
+        }));
         results.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: JSON.stringify({ results: result.properties }),
+          content: JSON.stringify({ 
+            results: propertiesWithUrls,
+            userBudget: args.presupuestoMax,
+            totalProperties: result.results.length,
+            hasResults: result.results.length > 0
+          }),
         });
         break;
       }

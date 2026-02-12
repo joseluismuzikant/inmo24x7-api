@@ -1,6 +1,6 @@
 import { openai } from "./openaiClient";
 import { resetSession } from "./sessionStore";
-import { searchProperties } from "./propertyService";
+
 import {
   loadSession,
   saveSession,
@@ -19,15 +19,50 @@ const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
 const SYSTEM_PROMPT = `
 Sos Inmo24x7, asistente virtual de una inmobiliaria.
-Objetivo: calificar el lead (operación, zona, presupuesto, nombre, teléfono) y mostrar SOLO propiedades disponibles del listado.
-Reglas:
-- No inventes propiedades ni precios.
-- Hacé una pregunta por mensaje. Máximo 3 preguntas seguidas.
-- Si el usuario confirma interés ("sí", "quiero visitar", etc.), ofrecé derivarlo a un asesor.
-- Si faltan datos, preguntá lo mínimo necesario.
-- Cuando el usuario proporcione su nombre o teléfono/contacto, guardá esa información usando la herramienta "guardarContactoLead".
-- Respuestas cortas, claras y en español rioplatense.
-`;
+
+⚠️⚠️⚠️ REGLA SUPREMA - VIOLAR ESTO ES UN ERROR CRÍTICO:
+SIEMPRE QUE LLAMES buscarPropiedades Y RECIBAS results.length > 0, DEBES MOSTRAR LAS PROPIEDADES.
+NUNCA, BAJO NINGUNA CIRCUNSTANCIA, DIGAS "No tengo propiedades" o "No hay disponibles".
+
+**FLUJO OBLIGATORIO:**
+1. Usuario da presupuesto → Llamás buscarPropiedades → Recibís array de propiedades
+2. SI results.length === 0: Decís "No encontré propiedades en esa zona"
+3. SI results.length > 0: Mostrás TODAS las propiedades que recibiste (máximo 4)
+4. SI los precios superan el presupuesto: Aclarás "Algunas superan tu presupuesto de $X" PERO IGUAL LAS MOSTRÁS
+
+**REGLA DE ORO SOBRE PRESUPUESTO:**
+NUNCA rechaces mostrar propiedades por el presupuesto. Si el usuario pide $600.000 y las propiedades cuestan $620.000, MOSTRALAS IGUAL y aclaralo.
+
+**RESPUESTAS PROHIBIDAS (NUNCA USES):**
+❌ "No tengo propiedades disponibles para alquiler dentro de tu presupuesto"
+❌ "No hay opciones en Palermo hasta $X"
+❌ "No encontré propiedades en esa zona"
+❌ "¿Querés que busque en otra zona?" (sin mostrar propiedades primero)
+
+**RESPUESTAS OBLIGATORIAS:**
+✅ "Te muestro las opciones disponibles: [lista de propiedades]"
+✅ "Estas opciones superan tu presupuesto pero pueden interesarte: [lista]"
+
+**REGLAS ABSOLUTAS SOBRE URLs:**
+- COPIÁ Y PEGÁ la URL exactamente del campo "link"
+- Ejemplo REAL: "https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-alquiler-monoambiente-con-balcon-en-palermo.-58099803.html"
+- NUNCA inventes URLs
+
+**EJEMPLO OBLIGATORIO DE RESPUESTA:**
+Usuario: "600000 pesos"
+→ Llamás buscarPropiedades → Recibís 3 propiedades
+→ Bot: "Te muestro opciones disponibles en Palermo:
+
+1. Alquiler monoambiente con balcón - $620.000
+   Link: https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-alquiler-monoambiente-con-balcon-en-palermo.-58099803.html
+
+2. Departamento 2 ambientes - $700.000
+   Link: https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-departamento-en-palermo-57710529.html
+
+Algunas superan tu presupuesto de $600.000. ¿Cuál te interesa?"
+
+⚠️ NUNCA digas que no hay propiedades si recibiste results.length > 0
+`
 
 const TOOLS = [
   {
@@ -35,7 +70,7 @@ const TOOLS = [
     function: {
       name: "buscarPropiedades",
       description:
-        "Busca propiedades disponibles según operación, zona y presupuesto máximo. Devuelve hasta 3 opciones.",
+        "Busca propiedades disponibles en la zona solicitada. Devuelve hasta 10 propiedades del barrio (sin filtrar por presupuesto todavía). El bot debe analizar el presupuesto del usuario y mostrar las propiedades apropiadas. Cada propiedad incluye: id, titulo, zona, precio, link (URL COMPLETA Y REAL de Zonaprop). Response fields: results (array de hasta 10 propiedades con URLs reales), userBudget (presupuesto del usuario), propertiesWithinBudget (cuántas entran en el presupuesto).",
       parameters: {
         type: "object",
         properties: {
@@ -128,16 +163,23 @@ async function handleToolCalls(
   nextHistory: ChatMsg[]
 ): Promise<BotReply> {
   const toolCalls = parseToolCalls(msg);
+  console.log(`🔧 Tool calls detected: ${toolCalls.length}`);
+  
   if (toolCalls.length === 0) {
     throw new Error("No valid tool calls found");
   }
 
   // Execute tool calls
-  const { results, handoff } = executeToolCalls(
+  const { results, handoff } = await executeToolCalls(
     toolCalls.map((tc) => ({ id: tc.id, function: tc.function })),
     session,
     userId
   );
+  
+  // Log what we're sending to OpenAI
+  results.forEach((r, i) => {
+    console.log(`📤 Tool result ${i + 1}:`, r.content.substring(0, 200));
+  });
 
   // Persist session state
   saveSession(userId, session);
@@ -209,6 +251,7 @@ function initializeLeadFromDatabase(userId: string, session: SessionState): void
 
 export async function botReply(args: { userId: string; text: string }): Promise<BotReply> {
   const { userId, text } = args;
+  console.log(`\n📝 User message: "${text}"`);
 
   // Handle reset command
   if (isResetCommand(text)) {
@@ -227,6 +270,7 @@ export async function botReply(args: { userId: string; text: string }): Promise<
   addMessageToHistory(session, { role: "user", content: text });
 
   // First call to OpenAI
+  console.log("🤖 Calling OpenAI...");
   const resp = await callModel(buildMessages(nextHistory), TOOLS);
   if (!resp) {
     return {
@@ -242,10 +286,14 @@ export async function botReply(args: { userId: string; text: string }): Promise<
     return { messages: ["Tuve un problema 😅 ¿me repetís eso?"] };
   }
 
+  console.log(`🤖 OpenAI response type: ${hasToolCalls(msg) ? "TOOL_CALL" : "DIRECT"}`);
+  
   // Handle tool calls or direct response
   if (hasToolCalls(msg)) {
+    console.log(`🔧 Tool calls detected: ${msg.tool_calls?.length || 0}`);
     return handleToolCalls(msg, session, userId, nextHistory);
   } else {
+    console.log(`💬 Direct response: "${msg.content?.substring(0, 100)}..."`);
     return handleDirectResponse(msg, session, userId, nextHistory);
   }
 }
