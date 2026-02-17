@@ -106,7 +106,7 @@ GET /health
 ```json
 {
   "ok": true,
-  "service": "inmo24x7-mvp"
+  "service": "inmo24x7-api"
 }
 ```
 
@@ -240,6 +240,65 @@ Sirve la interfaz web de chat desde `src/public/index.html`
 | `npm run build` | Compila TypeScript a JavaScript |
 | `npm start` | Ejecuta el servidor compilado |
 | `npm run db:init` | Inicializa la base de datos SQLite |
+
+## Docker
+
+### Construir imagen
+
+```bash
+docker build -t inmo24x7-api .
+```
+
+### Ejecutar contenedor
+
+```bash
+# Con variables de entorno desde archivo
+docker run -d \
+  --name inmo24x7-api \
+  -p 3000:3000 \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  inmo24x7-api
+
+# O con variables inline
+docker run -d \
+  --name inmo24x7-api \
+  -p 3000:3000 \
+  -e OPENAI_API_KEY=tu_api_key \
+  -e NODE_ENV=production \
+  -v $(pwd)/data:/app/data \
+  inmo24x7-api
+```
+
+### Docker Compose
+
+```bash
+# Iniciar servicio
+docker-compose up -d
+
+# Ver logs
+docker-compose logs -f
+
+# Detener servicio
+docker-compose down
+```
+
+### Comandos útiles
+
+```bash
+# Ver logs del contenedor
+docker logs -f inmo24x7-api
+
+# Ejecutar shell dentro del contenedor
+docker exec -it inmo24x7-api sh
+
+# Reiniciar contenedor
+docker restart inmo24x7-api
+
+# Eliminar contenedor e imagen
+docker rm -f inmo24x7-api
+docker rmi inmo24x7-api
+```
 
 ## Variables de entorno
 

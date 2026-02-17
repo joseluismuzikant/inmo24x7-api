@@ -6,5 +6,4 @@ package-lock.json
 data/
 .env
 .env.local
-.env.*.local
 .env.production
