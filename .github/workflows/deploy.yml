@@ -15,7 +15,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}   # ej: joseluismuzikant/inmo24x7-api
   CONTAINER_NAME: inmo24x7-api
-  DROPLET_ENV_FILE: ~/inmo24x7-api/.env
+  # OJO: NO usar ~ acá porque en el droplet lo vamos a expandir con $HOME
+  DROPLET_ENV_FILE: inmo24x7-api/.env
 
 jobs:
   build:
@@ -55,7 +56,7 @@ jobs:
     name: Deploy to DigitalOcean (manual)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: prod 
+    environment: prod
     permissions:
       contents: read
       packages: read
@@ -75,16 +76,19 @@ jobs:
 
             echo "Deploying ${IMAGE}"
 
+            # Expandimos ruta real del env file en el droplet
+            ENV_FILE="$HOME/${{ env.DROPLET_ENV_FILE }}"
+
             # Validar env file en droplet
-            if [ ! -f "${{ env.DROPLET_ENV_FILE }}" ]; then
-              echo "ERROR: No existe el env file en el droplet: ${{ env.DROPLET_ENV_FILE }}"
+            if [ ! -f "$ENV_FILE" ]; then
+              echo "ERROR: No existe el env file en el droplet: $ENV_FILE"
               echo "Crealo con PORT, OPENAI_API_KEY, OPENAI_MODEL, PROPERTY_LOADER, SUPABASE_URL, SUPABASE_ANON_KEY"
               exit 1
             fi
 
             # Leer PORT del env file (para mapear el puerto host:container)
             set -a
-            . "${{ env.DROPLET_ENV_FILE }}"
+            . "$ENV_FILE"
             set +a
             PORT="${PORT:-3000}"
 
@@ -93,7 +97,7 @@ jobs:
 
             docker pull "${IMAGE}"
 
-            mkdir -p ~/inmo24x7-api/data
+            mkdir -p "$HOME/inmo24x7-api/data"
 
             docker stop "${{ env.CONTAINER_NAME }}" || true
             docker rm "${{ env.CONTAINER_NAME }}" || true
@@ -102,8 +106,8 @@ jobs:
               --name "${{ env.CONTAINER_NAME }}" \
               --restart unless-stopped \
               -p "${PORT}:${PORT}" \
-              --env-file "${{ env.DROPLET_ENV_FILE }}" \
-              -v ~/inmo24x7-api/data:/app/data \
+              --env-file "$ENV_FILE" \
+              -v "$HOME/inmo24x7-api/data:/app/data" \
               "${IMAGE}" \
               node --experimental-specifier-resolution=node dist/index.js
 
