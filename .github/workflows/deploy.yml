@@ -1,124 +1,111 @@
-name: Build and Deploy to Digital Ocean
+name: Build (auto) + Deploy to DigitalOcean (manual)
 
 on:
+  push:
+    branches: ["main"]
+
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Environment to deploy to'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
+      tag:
+        description: "Image tag to deploy (latest o sha-<commit>)"
+        required: false
+        default: "latest"
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: ${{ github.repository }}   # ej: joseluismuzikant/inmo24x7-api
+  CONTAINER_NAME: inmo24x7-api
+  DROPLET_ENV_FILE: ~/inmo24x7-api/.env
 
 jobs:
   build:
-    name: Build Docker Image
+    name: Build & Push to GHCR
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    
+
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
+      - name: Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify image build
-        run: |
-          echo "Docker image built and pushed successfully!"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-
   deploy:
-    name: Deploy to Digital Ocean
-    needs: build
+    name: Deploy to DigitalOcean (manual)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
-    
-    steps:
-      - name: Deploy to Digital Ocean Droplet
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.DIGITALOCEAN_HOST }}
-          username: ${{ secrets.DIGITALOCEAN_USERNAME }}
-          key: ${{ secrets.DIGITALOCEAN_SSH_KEY }}
-          script: |
-            echo "Starting deployment..."
-            
-            # Login to GitHub Container Registry
-            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Pull latest image
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            
-            # Stop and remove old container
-            docker stop inmo24x7-api || true
-            docker rm inmo24x7-api || true
-            
-            # Create data directory if not exists
-            mkdir -p ~/inmo24x7-api/data
-            
-            # Run new container
-            docker run -d \
-              --name inmo24x7-api \
-              --restart unless-stopped \
-              -p 3000:3000 \
-              -e NODE_ENV=production \
-              -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-              -e PROPERTY_LOADER=${{ secrets.PROPERTY_LOADER }} \
-              -e SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
-              -e SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
-              -v ~/inmo24x7-api/data:/app/data \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            
-            # Cleanup
-            docker system prune -f
-            
-            echo "Deployment completed successfully!"
+    environment: prod 
+    permissions:
+      contents: read
+      packages: read
 
-      - name: Verify deployment
+    steps:
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.DIGITALOCEAN_HOST }}
           username: ${{ secrets.DIGITALOCEAN_USERNAME }}
           key: ${{ secrets.DIGITALOCEAN_SSH_KEY }}
           script: |
-            echo "Verifying deployment..."
-            sleep 5
-            curl -f http://localhost:3000/health || exit 1
-            echo "Health check passed!"
-            docker ps | grep inmo24x7-api
+            set -euo pipefail
+
+            TAG="${{ inputs.tag }}"
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}"
+
+            echo "Deploying ${IMAGE}"
+
+            # Validar env file en droplet
+            if [ ! -f "${{ env.DROPLET_ENV_FILE }}" ]; then
+              echo "ERROR: No existe el env file en el droplet: ${{ env.DROPLET_ENV_FILE }}"
+              echo "Crealo con PORT, OPENAI_API_KEY, OPENAI_MODEL, PROPERTY_LOADER, SUPABASE_URL, SUPABASE_ANON_KEY"
+              exit 1
+            fi
+
+            # Leer PORT del env file (para mapear el puerto host:container)
+            set -a
+            . "${{ env.DROPLET_ENV_FILE }}"
+            set +a
+            PORT="${PORT:-3000}"
+
+            # Login a GHCR desde el droplet (PAT)
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+            docker pull "${IMAGE}"
+
+            mkdir -p ~/inmo24x7-api/data
+
+            docker stop "${{ env.CONTAINER_NAME }}" || true
+            docker rm "${{ env.CONTAINER_NAME }}" || true
+
+            docker run -d \
+              --name "${{ env.CONTAINER_NAME }}" \
+              --restart unless-stopped \
+              -p "${PORT}:${PORT}" \
+              --env-file "${{ env.DROPLET_ENV_FILE }}" \
+              -v ~/inmo24x7-api/data:/app/data \
+              "${IMAGE}" \
+              node --experimental-specifier-resolution=node dist/index.js
+
+            docker image prune -f
+            docker ps --filter "name=${{ env.CONTAINER_NAME }}"
