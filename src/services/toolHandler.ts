@@ -2,7 +2,7 @@ import { searchProperties } from "./propertyService.js";
 import { leadService } from "./leadService.js";
 import { ensureLeadData, getLeadId, setLeadId } from "./sessionService.js";
 import { parseBuscarPropiedadesArgs, parseDerivarAHumanoArgs, parseGuardarContactoArgs } from "./toolParser.js";
-import type { SessionState, Property } from "../types/types";
+import type { SessionState, Property, SourceType } from "../types/types";
 
 export interface ToolResult {
   role: "tool";
@@ -23,7 +23,9 @@ class ToolExecutor {
   async executeBuscarPropiedades(
     args: unknown,
     session: SessionState,
-    userId: string
+    visitorId: string,
+    tenantId: string,
+    sourceType: SourceType
   ): Promise<{ results: Property[]; allWithinBudget: boolean; suggestedBudget?: number; leadId?: number }> {
     const parsedArgs = parseBuscarPropiedadesArgs(args);
     if (!parsedArgs) {
@@ -54,7 +56,7 @@ class ToolExecutor {
     }
 
     // Create or update lead in background
-    const leadId = leadService.loadOrCreateLead(userId, data, getLeadId(session));
+    const leadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, getLeadId(session));
     if (leadId) {
       setLeadId(session, leadId);
     }
@@ -66,11 +68,13 @@ class ToolExecutor {
     };
   }
 
-  executeDerivarAHumano(
+  async executeDerivarAHumano(
     args: unknown,
     session: SessionState,
-    userId: string
-  ): { ok: boolean; leadId?: number; summary: string } {
+    visitorId: string,
+    tenantId: string,
+    sourceType: SourceType
+  ): Promise<{ ok: boolean; leadId?: number; summary: string }> {
     const parsedArgs = parseDerivarAHumanoArgs(args);
     const summary = parsedArgs?.summary ?? "Lead interesado";
 
@@ -78,20 +82,22 @@ class ToolExecutor {
     const existingLeadId = getLeadId(session);
 
     // Create or update lead
-    const leadId = leadService.loadOrCreateLead(userId, data, existingLeadId);
+    const leadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, existingLeadId);
     if (leadId) {
       setLeadId(session, leadId);
-      leadService.updateLeadData(leadId, {}, summary);
+      await leadService.updateLeadData(leadId, {}, summary);
     }
 
     return { ok: true, leadId, summary };
   }
 
-  executeGuardarContacto(
+  async executeGuardarContacto(
     args: unknown,
     session: SessionState,
-    userId: string
-  ): { ok: boolean; nombre?: string; contacto?: string; leadId?: number } {
+    visitorId: string,
+    tenantId: string,
+    sourceType: SourceType
+  ): Promise<{ ok: boolean; nombre?: string; contacto?: string; leadId?: number }> {
     const parsedArgs = parseGuardarContactoArgs(args);
     if (!parsedArgs) {
       return { ok: false };
@@ -108,12 +114,19 @@ class ToolExecutor {
     }
 
     // Update lead in database if it exists
-    const leadId = getLeadId(session);
+    let leadId = getLeadId(session);
     if (leadId) {
-      leadService.updateLeadData(leadId, {
+      await leadService.updateLeadData(leadId, {
         nombre: data.nombre,
         contacto: data.contacto,
       });
+    } else {
+      // Create lead with contact info
+      const newLeadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, undefined);
+      if (newLeadId) {
+        setLeadId(session, newLeadId);
+        leadId = newLeadId;
+      }
     }
 
     return {
@@ -130,7 +143,9 @@ const toolExecutor = new ToolExecutor();
 export async function executeToolCalls(
   toolCalls: Array<{ id: string; function: { name: string; arguments?: string } }>,
   session: SessionState,
-  userId: string
+  visitorId: string,
+  tenantId: string,
+  sourceType: SourceType
 ): Promise<ToolExecutionResult> {
   const results: ToolResult[] = [];
   let handoff: HandoffData | undefined;
@@ -142,7 +157,7 @@ export async function executeToolCalls(
 
     switch (name) {
       case "buscarPropiedades": {
-        const result = await toolExecutor.executeBuscarPropiedades(args, session, userId);
+        const result = await toolExecutor.executeBuscarPropiedades(args, session, visitorId, tenantId, sourceType);
         // Pass full property details including real URLs
         const propertiesWithUrls = result.results.map(p => ({
           id: p.id,
@@ -167,7 +182,7 @@ export async function executeToolCalls(
       }
 
       case "guardarContactoLead": {
-        const result = toolExecutor.executeGuardarContacto(args, session, userId);
+        const result = await toolExecutor.executeGuardarContacto(args, session, visitorId, tenantId, sourceType);
         results.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -177,7 +192,7 @@ export async function executeToolCalls(
       }
 
       case "derivarAHumano": {
-        const result = toolExecutor.executeDerivarAHumano(args, session, userId);
+        const result = await toolExecutor.executeDerivarAHumano(args, session, visitorId, tenantId, sourceType);
         results.push({
           role: "tool",
           tool_call_id: tc.id,
