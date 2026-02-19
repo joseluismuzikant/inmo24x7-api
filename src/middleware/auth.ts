@@ -50,8 +50,14 @@ export async function authMiddleware(
     return;
   }
 
-  // Si auth NO es requerida (REQUIRE_AUTH='false'), skip toda la validación
+  // Si auth NO es requerida (REQUIRE_AUTH='false'), usar defaults pero leer source_type del header
   if (!requireAuth) {
+    const headerSourceType = req.headers['x-source-type'] as SourceType;
+    req.user = {
+      id: 'anonymous',
+      tenant_id: process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000001',
+      source_type: headerSourceType || 'web_chat',
+    };
     return next();
   }
 
@@ -94,16 +100,19 @@ export async function authMiddleware(
       return;
     }
 
-    // Extract source_type from user metadata (or default to 'web_chat')
+    // Extract source_type from header (priority) or user metadata (fallback)
+    const headerSourceType = req.headers['x-source-type'] as SourceType;
     const metadata = user.user_metadata || {};
     const appMetadata = user.app_metadata || {};
+    
+    const source_type = headerSourceType || metadata.source_type || appMetadata.source_type || 'web_chat';
 
     req.user = {
       id: user.id,
       email: user.email,
       tenant_id: profile.tenant_id,
       role: profile.role,
-      source_type: metadata.source_type || appMetadata.source_type || 'web_chat',
+      source_type,
     };
 
     next();
