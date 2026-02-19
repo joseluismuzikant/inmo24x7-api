@@ -29,11 +29,12 @@ const router = Router();
  *       500:
  *         description: Server error
  */
-router.get("/api/leads", (_req, res) => {
+router.get("/api/leads", async (_req, res) => {
   try {
-    const leads = getAllLeads();
+    const leads = await getAllLeads();
     res.json({ leads });
   } catch (error) {
+    console.error("Error fetching leads:", error);
     res.status(500).json({ error: "Failed to fetch leads" });
   }
 });
@@ -73,20 +74,21 @@ router.get("/api/leads", (_req, res) => {
  *       500:
  *         description: Server error
  */
-router.get("/api/leads/:id", (req, res) => {
+router.get("/api/leads/:id", async (req, res) => {
   try {
     const leadId = Number(req.params.id);
     if (isNaN(leadId)) {
       return res.status(400).json({ error: "Invalid lead ID" });
     }
 
-    const lead = getLeadById(leadId);
+    const lead = await getLeadById(leadId);
     if (!lead) {
       return res.status(404).json({ error: "Lead not found" });
     }
 
     res.json({ lead });
   } catch (error) {
+    console.error("Error fetching lead:", error);
     res.status(500).json({ error: "Failed to fetch lead" });
   }
 });
@@ -124,16 +126,17 @@ router.get("/api/leads/:id", (req, res) => {
  *       500:
  *         description: Server error
  */
-router.delete("/api/leads/:id", (req, res) => {
+router.delete("/api/leads/:id", async (req, res) => {
   try {
     const leadId = Number(req.params.id);
     if (isNaN(leadId)) {
       return res.status(400).json({ error: "Invalid lead ID" });
     }
 
-    deleteLead(leadId);
+    await deleteLead(leadId);
     res.json({ success: true });
   } catch (error) {
+    console.error("Error deleting lead:", error);
     res.status(500).json({ error: "Failed to delete lead" });
   }
 });

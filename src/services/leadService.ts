@@ -1,8 +1,14 @@
-import { createLead, updateLead, getLeadByUserId, type Lead } from "../repositories/leadRepo.js";
+import { createLead, updateLead, getLeadByVisitorId, type Lead, type SourceType } from "../repositories/leadRepo.js";
 import type { LeadData } from "./sessionService.js";
 
 export class LeadService {
-  loadOrCreateLead(userId: string, sessionData: LeadData, sessionLeadId?: number): number | undefined {
+  async loadOrCreateLead(
+    visitor_id: string, 
+    tenant_id: string,
+    source_type: SourceType,
+    sessionData: LeadData, 
+    sessionLeadId?: number
+  ): Promise<number | undefined> {
     // If we already have a leadId in session, update it
     if (sessionLeadId) {
       return sessionLeadId;
@@ -10,11 +16,13 @@ export class LeadService {
 
     // Always create new lead if we have enough data (multiple leads per user allowed)
     if (this.canCreateLead(sessionData)) {
-      const leadId = createLead({
-        userId,
+      const leadId = await createLead({
+        tenant_id,
+        visitor_id,
+        source_type,
         operacion: sessionData.operacion,
         zona: sessionData.zona,
-        presupuestoMax: sessionData.presupuestoMax,
+        presupuesto_max: sessionData.presupuestoMax,
         nombre: sessionData.nombre,
         contacto: sessionData.contacto,
       });
@@ -24,12 +32,17 @@ export class LeadService {
     return undefined;
   }
 
-  updateLeadData(leadId: number, data: Partial<LeadData>, summary?: string): void {
-    const updateData: Record<string, any> = { ...data };
+  async updateLeadData(leadId: number, data: Partial<LeadData>, summary?: string): Promise<void> {
+    const updateData: Record<string, any> = {};
+    if (data.operacion !== undefined) updateData.operacion = data.operacion;
+    if (data.zona !== undefined) updateData.zona = data.zona;
+    if (data.presupuestoMax !== undefined) updateData.presupuesto_max = data.presupuestoMax;
+    if (data.nombre !== undefined) updateData.nombre = data.nombre;
+    if (data.contacto !== undefined) updateData.contacto = data.contacto;
     if (summary) {
       updateData.summary = summary;
     }
-    updateLead(leadId, updateData);
+    await updateLead(leadId, updateData);
   }
 
   private canCreateLead(data: LeadData): boolean {

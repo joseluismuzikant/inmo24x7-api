@@ -1,5 +1,7 @@
 export type Operation = "venta" | "alquiler";
 
+export type SourceType = 'web_chat' | 'whatsapp' | 'form' | 'backoffice';
+
 export type Property = {
   // Identificación
   id: string;
@@ -59,7 +61,7 @@ export type Property = {
   expenses?: string;
 };
 
-export type ChatMsg = { role: "user" | "assistant"; content: string };
+export type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
 
 export type SessionState = {
   // 👇 flujo actual (NO lo tocamos todavía)

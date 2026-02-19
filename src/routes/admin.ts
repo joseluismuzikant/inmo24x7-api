@@ -24,17 +24,17 @@ function money(v: any) {
    LISTA DE LEADS
 ========================= */
 
-adminRouter.get("/admin/leads", (_req, res) => {
-  const leads = listLeads(50);
+adminRouter.get("/admin/leads", async (_req, res) => {
+  const leads = await listLeads(50);
 
   const rows = leads
     .map((l: any) => `
       <tr>
         <td><a href="/admin/leads/${l.id}">${l.id}</a></td>
-        <td>${esc(l.createdAt)}</td>
+        <td>${esc(l.created_at)}</td>
         <td>${esc(l.operacion)}</td>
         <td>${esc(l.zona)}</td>
-        <td style="text-align:right">${money(l.presupuestoMax)}</td>
+        <td style="text-align:right">${money(l.presupuesto_max)}</td>
         <td>${esc(l.nombre)}</td>
         <td>${esc(l.contacto)}</td>
         <td class="muted">${esc(l.summary)}</td>
@@ -125,13 +125,13 @@ adminRouter.get("/admin/leads", (_req, res) => {
    DETALLE DE LEAD
 ========================= */
 
-adminRouter.get("/admin/leads/:id", (req, res) => {
+adminRouter.get("/admin/leads/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) {
     return res.status(400).send("ID inválido");
   }
 
-  const lead: any = getLeadById(id);
+  const lead = await getLeadById(id);
   if (!lead) {
     return res.status(404).send("Lead no encontrado");
   }
@@ -172,10 +172,10 @@ adminRouter.get("/admin/leads/:id", (req, res) => {
   <h1>Lead #${id}</h1>
 
   <div class="box">
-    <div class="k">Fecha</div><div class="v">${esc(lead.createdAt)}</div>
+    <div class="k">Fecha</div><div class="v">${esc(lead.created_at)}</div>
     <div class="k">Operación</div><div class="v">${esc(lead.operacion)}</div>
     <div class="k">Zona</div><div class="v">${esc(lead.zona)}</div>
-    <div class="k">Presupuesto</div><div class="v">${money(lead.presupuestoMax)}</div>
+    <div class="k">Presupuesto</div><div class="v">${money(lead.presupuesto_max)}</div>
     <div class="k">Nombre</div><div class="v">${esc(lead.nombre)}</div>
     <div class="k">Contacto</div><div class="v">${esc(lead.contacto)}</div>
     <div class="k">Resumen</div><div class="v">${esc(lead.summary)}</div>

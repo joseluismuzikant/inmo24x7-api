@@ -13,7 +13,7 @@ import {
 import { leadService } from "./leadService.js";
 import { hasToolCalls, parseToolCalls } from "./toolParser.js";
 import { executeToolCalls, type ToolResult } from "./toolHandler.js";
-import type { BotReply, ChatMsg, SessionState } from "../types/types";
+import type { BotReply, ChatMsg, SessionState, SourceType } from "../types/types";
 
 const MODEL = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
 
@@ -39,273 +39,244 @@ NUNCA rechaces mostrar propiedades por el presupuesto. Si el usuario pide $600.0
 ❌ "No encontré propiedades en esa zona"
 ❌ "¿Querés que busque en otra zona?" (sin mostrar propiedades primero)
 
-**RESPUESTAS OBLIGATORIAS:**
-✅ "Te muestro las opciones disponibles: [lista de propiedades]"
-✅ "Estas opciones superan tu presupuesto pero pueden interesarte: [lista]"
+**EJEMPLO CORRECTO:**
+Usuario: "Busco en Palermo hasta 600.000"
+→ Llamás buscarPropiedades
+→ Recibís 3 propiedades: $580.000, $620.000, $650.000
+→ Respondés: "¡Buenas noticias! Encontré 3 opciones en Palermo. Te las muestro:
+   1. Depto 2 amb - $580.000 - [link]
+   2. Depto 3 amb - $620.000 (supera tu presupuesto) - [link]
+   3. Depto 2 amb - $650.000 (supera tu presupuesto) - [link]"
 
-**REGLAS ABSOLUTAS SOBRE URLs:**
-- COPIÁ Y PEGÁ la URL exactamente del campo "link"
-- Ejemplo REAL: "https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-alquiler-monoambiente-con-balcon-en-palermo.-58099803.html"
-- NUNCA inventes URLs
+**EJEMPLO PROHIBIDO (NUNCA HAGAS ESTO):**
+❌ "Lamentablemente no tengo propiedades disponibles para alquiler dentro de tu presupuesto de 600.000 en Palermo."
 
-**FORMATO DE LINKS CLICKEABLES (IMPORTANTE):**
-Los links deben estar en formato markdown para que sean clickeables en el chat.
-Usa el formato: corchete Ver propiedad corchete parentesis URL parentesis
-Ejemplo: (Ver propiedad)https://ejemplo.com(/Ver propiedad) - pero con corchetes en lugar de parentesis para el texto
+**PROPIEDADES:**
+Cuando muestres propiedades, SIEMPRE incluí:
+- 📍 Dirección completa
+- 💰 Precio exacto (si supera el presupuesto, aclaralo)
+- 🏠 Características (ambientes, baños, etc.)
+- 🔗 Link para ver más fotos
 
-CORRECTO (link clickeable en markdown):
-- Texto entre CORCHETES seguido de URL entre PARENTESIS
-- Ejemplo: [Ver en Zonaprop] (https://www.zonaprop.com.ar/...) - pero sin espacio entre corchetes y parentesis
+**CONVERSACIÓN:**
+- Sé amable y profesional
+- Guía al usuario paso a paso
+- Validá los datos antes de buscar
+- Si el usuario no tiene presupuesto definido, preguntá por rango
+- Si la zona es muy amplia, sugerí refinar
 
-INCORRECTO (texto plano no clickeable):
-Link: https://www.zonaprop.com.ar/propiedades/clasificado/...
+**FLUJO DE CAPTURA DE LEAD (CRÍTICO):**
+1. Cuando el usuario quiera visitar: Pedí nombre y contacto directamente
+2. Cuando te dé los datos:
+   - LLAMÁ guardarContacto(nombre, contacto)
+   - INMEDIATAMENTE LLAMÁ derivarAHumano(summary) con un resumen tipo "Lead Jorge quiere visitar depto en Palermo, contacto: jorge@email.com"
+3. La respuesta después de derivarAHumano debe ser CORTA y FINAL: "¡Perfecto Jorge! Un agente se comunicará con vos para coordinar la visita."
+4. NO preguntes nada más, NO sigas la conversación, NO ofrezcas más ayuda
 
-**EJEMPLO OBLIGATORIO DE RESPUESTA:**
-Usuario: "600000 pesos"
-Llamas buscarPropiedades y recibis 3 propiedades
-Bot dice: "Te muestro opciones disponibles en Palermo:
+**REGLA DE HANDOFF:**
+- Después de derivarAHumano() la conversación TERMINA
+- El usuario será atendido por un humano
+- Tu último mensaje debe ser de despedida confirmando que un agente se contactará
 
-1. Alquiler monoambiente con balcon - $620.000
-[Ver en Zonaprop](https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-alquiler-monoambiente-con-balcon-en-palermo.-58099803.html)
+**HERRAMIENTAS DISPONIBLES:**
+1. buscarPropiedades(operacion, zona, presupuestoMax) → SIEMPRE mostrá los resultados
+2. derivarAHumano(summary) → Cuando el usuario quiera hablar con un humano
+3. guardarContacto(nombre, contacto) → Para guardar datos de contacto
 
-2. Departamento 2 ambientes - $700.000
-[Ver en Zonaprop](https://www.zonaprop.com.ar/propiedades/clasificado/alclapin-departamento-en-palermo-57710529.html)
-
-Algunas superan tu presupuesto de $600.000. Cual te interesa?"
-
-⚠️ NUNCA digas que no hay propiedades si recibiste results.length > 0
-`
-
-const TOOLS = [
-  {
-    type: "function" as const,
-    function: {
-      name: "buscarPropiedades",
-      description:
-        "Busca propiedades disponibles en la zona solicitada. Devuelve hasta 10 propiedades del barrio (sin filtrar por presupuesto todavía). El bot debe analizar el presupuesto del usuario y mostrar las propiedades apropiadas. Cada propiedad incluye: id, titulo, zona, precio, link (URL COMPLETA Y REAL de Zonaprop). Response fields: results (array de hasta 10 propiedades con URLs reales), userBudget (presupuesto del usuario), propertiesWithinBudget (cuántas entran en el presupuesto).",
-      parameters: {
-        type: "object",
-        properties: {
-          operacion: { type: "string", enum: ["venta", "alquiler"] },
-          zona: { type: "string" },
-          presupuestoMax: { type: "number" },
-        },
-        required: ["operacion", "zona", "presupuestoMax"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "guardarContactoLead",
-      description:
-        "Guarda el nombre y/o teléfono del lead cuando el usuario los proporciona. Usar cuando el usuario diga su nombre o número de contacto.",
-      parameters: {
-        type: "object",
-        properties: {
-          nombre: { type: "string", description: "Nombre del lead" },
-          contacto: { type: "string", description: "Teléfono o email del lead" },
-        },
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "derivarAHumano",
-      description:
-        "Marca el lead como listo para asesor humano. Debe incluir un resumen corto del caso.",
-      parameters: {
-        type: "object",
-        properties: {
-          summary: { type: "string" },
-        },
-        required: ["summary"],
-      },
-    },
-  },
-];
+REGLA DE ORO: Si recibís propiedades, LAS MOSTRÁS. Punto.
+`;
 
 function isResetCommand(text: string): boolean {
-  return text.trim().toLowerCase() === "/reset";
+  const t = text.toLowerCase().trim();
+  return t === "reset" || t === "reiniciar" || t === "empezar de nuevo" || t === "nueva conversación";
 }
 
-function isOpenAIRateLimitOrQuota(err: any): boolean {
-  return err?.status === 429;
-}
-
-function safeJsonParse<T>(raw: string, fallback: T): T {
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function buildMessages(history: ChatMsg[]) {
-  return [
-    { role: "system" as const, content: SYSTEM_PROMPT },
-    ...history.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-  ];
-}
-
-async function callModel(
-  messages: { role: "system" | "user" | "assistant"; content: string }[],
-  tools?: typeof TOOLS
-) {
-  try {
-    return await openai.chat.completions.create({
-      model: MODEL,
-      messages,
-      tools,
-      tool_choice: tools ? "auto" : undefined,
-    });
-  } catch (err: any) {
-    if (isOpenAIRateLimitOrQuota(err)) {
-      return null;
-    }
-    throw err;
-  }
-}
-
-async function handleToolCalls(
-  msg: any,
-  session: SessionState,
-  userId: string,
-  nextHistory: ChatMsg[]
-): Promise<BotReply> {
-  const toolCalls = parseToolCalls(msg);
-  console.log(`🔧 Tool calls detected: ${toolCalls.length}`);
-  
-  if (toolCalls.length === 0) {
-    throw new Error("No valid tool calls found");
-  }
-
-  // Execute tool calls
-  const { results, handoff } = await executeToolCalls(
-    toolCalls.map((tc) => ({ id: tc.id, function: tc.function })),
-    session,
-    userId
-  );
-  
-  // Log what we're sending to OpenAI
-  results.forEach((r, i) => {
-    console.log(`📤 Tool result ${i + 1}:`, r.content.substring(0, 200));
-  });
-
-  // Persist session state
-  saveSession(userId, session);
-
-  // Build messages for second call
-  const messagesForSecondCall: any[] = [
-    ...buildMessages(nextHistory),
-    {
-      role: "assistant",
-      content: msg.content ?? "",
-      tool_calls: msg.tool_calls,
-    },
-    ...results,
-  ];
-
-  // Second call to get final response
-  const resp2 = await openai.chat.completions.create({
-    model: MODEL,
-    messages: messagesForSecondCall,
-  });
-
-  const finalMsg = resp2.choices[0]?.message?.content?.trim();
-  if (!finalMsg) {
-    return { messages: ["Ok. ¿Querés que te muestre opciones?"] };
-  }
-
-  // Update history with final response
-  addMessageToHistory(session, { role: "assistant", content: finalMsg });
-  saveSession(userId, session);
-
-  // Update lead with summary if handoff occurred
-  if (handoff?.summary) {
-    const leadId = getLeadId(session);
-    if (leadId) {
-      leadService.updateLeadData(leadId, {}, handoff.summary);
-    }
-    return {
-      messages: [finalMsg],
-      handoff: { summary: handoff.summary },
-    };
-  }
-
-  return { messages: [finalMsg] };
-}
-
-async function handleDirectResponse(
-  msg: any,
-  session: SessionState,
-  userId: string,
-  nextHistory: ChatMsg[]
-): Promise<BotReply> {
-  const content = (msg.content ?? "").trim();
-  if (!content) {
-    return { messages: ["¿Me decís si buscás comprar o alquilar?"] };
-  }
-
-  addMessageToHistory(session, { role: "assistant", content });
-  saveSession(userId, session);
-
-  return { messages: [content] };
-}
-
-function initializeLeadFromDatabase(userId: string, session: SessionState): void {
-  const leadId = leadService.loadOrCreateLead(userId, ensureLeadData(session), getLeadId(session));
-  if (leadId) {
-    setLeadId(session, leadId);
-  }
-}
-
-export async function botReply(args: { userId: string; text: string }): Promise<BotReply> {
-  const { userId, text } = args;
+export async function botReply(args: { 
+  userId: string; 
+  text: string;
+  tenantId: string;
+  sourceType: SourceType;
+}): Promise<BotReply> {
+  const { userId, text, tenantId, sourceType } = args;
   console.log(`\n📝 User message: "${text}"`);
 
-  // Handle reset command
-  if (isResetCommand(text)) {
-    resetSession(userId);
-    return { messages: ["Listo ✅ Reinicié la conversación. ¿Buscás comprar o alquilar?"] };
-  }
+  try {
+    // Handle reset command
+    if (isResetCommand(text)) {
+      resetSession(userId);
+      return { messages: ["Listo ✅ Reinicié la conversación. ¿Buscás comprar o alquilar?"] };
+    }
 
-  // Load session and initialize lead from database
-  const session = loadSession(userId);
-  ensureLeadData(session);
-  initializeLeadFromDatabase(userId, session);
+    // Load session and initialize lead from database
+    const session = loadSession(userId);
+    ensureLeadData(session);
+    
+    try {
+      await initializeLeadFromDatabase(userId, tenantId, sourceType, session);
+    } catch (leadError) {
+      console.error("⚠️ Failed to initialize lead (continuing anyway):", leadError);
+    }
 
-  // Build history
-  const history = getHistory(session);
-  const nextHistory: ChatMsg[] = [...history, { role: "user", content: text }];
-  addMessageToHistory(session, { role: "user", content: text });
+    // Build history
+    const history = getHistory(session);
+    const messages: ChatMsg[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history,
+      { role: "user", content: text },
+    ];
 
-  // First call to OpenAI
-  console.log("🤖 Calling OpenAI...");
-  const resp = await callModel(buildMessages(nextHistory), TOOLS);
-  if (!resp) {
-    return {
-      messages: [
-        "Ahora mismo estoy sin cupo de IA ⚠️ (demo).",
-        "¿Buscás comprar o alquilar?",
+    console.log(`🤖 Calling OpenAI with ${messages.length} messages...`);
+
+    // Call OpenAI
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: messages as any,
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "buscarPropiedades",
+            description: "Busca propiedades según operación, zona y presupuesto máximo",
+            parameters: {
+              type: "object",
+              properties: {
+                operacion: { type: "string", enum: ["venta", "alquiler"], description: "Tipo de operación" },
+                zona: { type: "string", description: "Zona/barrio donde buscar" },
+                presupuestoMax: { type: "number", description: "Presupuesto máximo en pesos argentinos" },
+              },
+              required: ["operacion", "zona", "presupuestoMax"],
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "derivarAHumano",
+            description: "Deriva la conversación a un agente humano",
+            parameters: {
+              type: "object",
+              properties: {
+                summary: { type: "string", description: "Resumen de la conversación para el agente" },
+              },
+              required: ["summary"],
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            name: "guardarContacto",
+            description: "Guarda el nombre y datos de contacto del usuario",
+            parameters: {
+              type: "object",
+              properties: {
+                nombre: { type: "string", description: "Nombre del usuario" },
+                contacto: { type: "string", description: "Teléfono, email o forma de contacto" },
+              },
+              required: ["nombre", "contacto"],
+            },
+          },
+        },
       ],
+      tool_choice: "auto",
+      temperature: 0.7,
+    });
+
+    const assistantMessage = completion.choices[0].message;
+    console.log(`✅ OpenAI response received`);
+
+    // Handle tool calls
+    let toolResults: ToolResult[] = [];
+    let handoffData: { summary: string } | undefined;
+
+    if (hasToolCalls(assistantMessage)) {
+      console.log(`🔧 Processing ${assistantMessage.tool_calls?.length} tool calls...`);
+      const toolCalls = parseToolCalls(assistantMessage);
+      
+      try {
+        const executionResult = await executeToolCalls(toolCalls, session, userId, tenantId, sourceType);
+        toolResults = executionResult.results;
+        handoffData = executionResult.handoff;
+
+        // Update lead ID in session if returned from tool
+        const leadIdFromTool = toolResults.find(r => {
+          try {
+            const content = JSON.parse(r.content);
+            return content.leadId;
+          } catch {
+            return false;
+          }
+        });
+        if (leadIdFromTool) {
+          try {
+            const content = JSON.parse(leadIdFromTool.content);
+            if (content.leadId) {
+              setLeadId(session, content.leadId);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch (toolError) {
+        console.error("⚠️ Tool execution failed:", toolError);
+      }
+    }
+
+    // Build final messages for second OpenAI call
+    const finalMessages: ChatMsg[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...history,
+      { role: "user", content: text },
+    ];
+
+    // Include the assistant message (with tool_calls if present) - MUST come before tool results
+    finalMessages.push(assistantMessage as any);
+
+    if (toolResults.length > 0) {
+      finalMessages.push(...toolResults as any);
+    }
+
+    // Get final response
+    const finalCompletion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: finalMessages as any,
+      temperature: 0.7,
+    });
+
+    const finalContent = finalCompletion.choices[0].message.content ?? "";
+    console.log(`🤖 Final response: "${finalContent.substring(0, 100)}..."`);
+
+    // Update history
+    addMessageToHistory(session, { role: "user", content: text });
+    addMessageToHistory(session, { role: "assistant", content: finalContent });
+    saveSession(userId, session);
+
+    return { 
+      messages: [finalContent],
+      handoff: handoffData,
+    };
+  } catch (error: any) {
+    console.error("❌ Error in botReply:", error);
+    // Return a graceful error message to the user
+    return {
+      messages: ["Lo siento, hubo un error procesando tu mensaje. ¿Podés intentar de nuevo?"],
     };
   }
+}
 
-  const msg = resp.choices[0]?.message;
-  if (!msg) {
-    return { messages: ["Tuve un problema 😅 ¿me repetís eso?"] };
-  }
-
-  console.log(`🤖 OpenAI response type: ${hasToolCalls(msg) ? "TOOL_CALL" : "DIRECT"}`);
-  
-  // Handle tool calls or direct response
-  if (hasToolCalls(msg)) {
-    console.log(`🔧 Tool calls detected: ${msg.tool_calls?.length || 0}`);
-    return handleToolCalls(msg, session, userId, nextHistory);
-  } else {
-    console.log(`💬 Direct response: "${msg.content?.substring(0, 100)}..."`);
-    return handleDirectResponse(msg, session, userId, nextHistory);
+async function initializeLeadFromDatabase(
+  visitorId: string, 
+  tenantId: string, 
+  sourceType: SourceType,
+  session: SessionState
+): Promise<void> {
+  try {
+    const leadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, ensureLeadData(session), getLeadId(session));
+    if (leadId) {
+      setLeadId(session, leadId);
+    }
+  } catch (error) {
+    console.error("⚠️ Failed to initialize lead from database:", error);
+    // Don't throw - we can continue without lead tracking
   }
 }
