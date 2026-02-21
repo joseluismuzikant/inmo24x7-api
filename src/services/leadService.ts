@@ -14,25 +14,29 @@ export class LeadService {
       return sessionLeadId;
     }
 
-    // Always create new lead if we have enough data (multiple leads per user allowed)
-    if (this.canCreateLead(sessionData)) {
+    // Create lead if we have enough data OR at least contact info
+    if (this.canCreateLead(sessionData) || sessionData.nombre || sessionData.contacto) {
+      console.log("📝 loadOrCreateLead sessionData:", sessionData);
       const leadId = await createLead({
         tenant_id,
         visitor_id,
         source_type,
-        operacion: sessionData.operacion,
-        zona: sessionData.zona,
-        presupuesto_max: sessionData.presupuestoMax,
-        nombre: sessionData.nombre,
-        contacto: sessionData.contacto,
+        operacion: sessionData.operacion ?? undefined,
+        zona: sessionData.zona ?? undefined,
+        presupuesto_max: sessionData.presupuestoMax ?? undefined,
+        nombre: sessionData.nombre ?? undefined,
+        contacto: sessionData.contacto ?? undefined,
       });
+      console.log("📝 loadOrCreateLead created leadId:", leadId);
       return leadId;
     }
 
+    console.log("📝 loadOrCreateLead skipped, sessionData:", sessionData);
     return undefined;
   }
 
   async updateLeadData(leadId: number, data: Partial<LeadData>, summary?: string): Promise<void> {
+    console.log("📝 updateLeadData called with leadId:", leadId, "data:", data);
     const updateData: Record<string, any> = {};
     if (data.operacion !== undefined) updateData.operacion = data.operacion;
     if (data.zona !== undefined) updateData.zona = data.zona;
@@ -42,6 +46,7 @@ export class LeadService {
     if (summary) {
       updateData.summary = summary;
     }
+    console.log("📝 updateLeadData updateData:", updateData);
     await updateLead(leadId, updateData);
   }
 

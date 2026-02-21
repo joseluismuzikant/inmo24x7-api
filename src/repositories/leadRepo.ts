@@ -48,21 +48,25 @@ export type CreateLeadInput = {
 export type UpdateLeadInput = Partial<Omit<CreateLeadInput, "tenant_id" | "visitor_id" | "source_type">>;
 
 export async function createLead(input: CreateLeadInput): Promise<number> {
+  console.log("📝 createLead input:", input);
   const client = getSupabaseClient();
+  
+  const insertData = {
+    tenant_id: input.tenant_id,
+    visitor_id: input.visitor_id,
+    source_type: input.source_type,
+    operacion: input.operacion ?? null,
+    zona: input.zona ?? null,
+    presupuesto_max: input.presupuesto_max ?? null,
+    nombre: input.nombre ?? null,
+    contacto: input.contacto ?? null,
+    summary: input.summary ?? null,
+  };
+  console.log("📝 createLead insertData:", insertData);
   
   const { data, error } = await client
     .from("leads")
-    .insert({
-      tenant_id: input.tenant_id,
-      visitor_id: input.visitor_id,
-      source_type: input.source_type,
-      operacion: input.operacion ?? null,
-      zona: input.zona ?? null,
-      presupuesto_max: input.presupuesto_max ?? null,
-      nombre: input.nombre ?? null,
-      contacto: input.contacto ?? null,
-      summary: input.summary ?? null,
-    })
+    .insert(insertData)
     .select("id")
     .single();
 
@@ -74,6 +78,7 @@ export async function createLead(input: CreateLeadInput): Promise<number> {
 }
 
 export async function updateLead(leadId: number, patch: UpdateLeadInput): Promise<void> {
+  console.log("📝 updateLead called with leadId:", leadId, "patch:", patch);
   const client = getSupabaseClient();
   
   const updateData: Record<string, any> = {};
@@ -85,6 +90,8 @@ export async function updateLead(leadId: number, patch: UpdateLeadInput): Promis
   if (patch.contacto !== undefined) updateData.contacto = patch.contacto;
   if (patch.summary !== undefined) updateData.summary = patch.summary;
 
+  console.log("📝 updateLead updateData:", updateData);
+  
   if (Object.keys(updateData).length === 0) return;
 
   const { error } = await client

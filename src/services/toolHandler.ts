@@ -70,11 +70,27 @@ class ToolExecutor {
     const data = ensureLeadData(session);
     const existingLeadId = getLeadId(session);
 
-    // Create or update lead
+    // Extract nombre and contacto from summary if not in session
+    // Format: "Lead Juan Carlos quiere visitar depto en Belgrano, contacto: 112334552"
+    const nombreMatch = summary.match(/Lead\s+([A-Za-z\s]+?)(?:\s+quiere|,\s*contacto)/i);
+    const contactoMatch = summary.match(/contacto:\s*([^\s,]+)/i);
+    
+    if (nombreMatch && !data.nombre) {
+      data.nombre = nombreMatch[1].trim();
+    }
+    if (contactoMatch && !data.contacto) {
+      data.contacto = contactoMatch[1].trim();
+    }
+
+    // Create or update lead with all available data
     const leadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, existingLeadId);
     if (leadId) {
       setLeadId(session, leadId);
-      await leadService.updateLeadData(leadId, {}, summary);
+      await leadService.updateLeadData(leadId, {
+        nombre: data.nombre,
+        contacto: data.contacto,
+        zona: data.zona,
+      }, summary);
     }
 
     return { ok: true, leadId, summary };
@@ -89,8 +105,11 @@ class ToolExecutor {
   ): Promise<{ ok: boolean; nombre?: string; contacto?: string; leadId?: number }> {
     const parsedArgs = parseGuardarContactoArgs(args);
     if (!parsedArgs) {
+      console.log("⚠️ guardarContacto: Invalid arguments", args);
       return { ok: false };
     }
+
+    console.log("📥 guardarContacto parsedArgs:", parsedArgs);
 
     const data = ensureLeadData(session);
     
@@ -102,19 +121,29 @@ class ToolExecutor {
       data.contacto = parsedArgs.contacto;
     }
 
+    console.log("📥 guardarContacto data after update:", data);
+
     // Update lead in database if it exists
     let leadId = getLeadId(session);
+    const updatePayload: any = {};
+    if (data.nombre) updatePayload.nombre = data.nombre;
+    if (data.contacto) updatePayload.contacto = data.contacto;
+    
+    console.log("📥 guardarContacto updatePayload:", updatePayload, "leadId:", leadId);
+    
     if (leadId) {
-      await leadService.updateLeadData(leadId, {
-        nombre: data.nombre,
-        contacto: data.contacto,
-      });
+      if (Object.keys(updatePayload).length > 0) {
+        await leadService.updateLeadData(leadId, updatePayload);
+      }
     } else {
-      // Create lead with contact info
-      const newLeadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, undefined);
-      if (newLeadId) {
-        setLeadId(session, newLeadId);
-        leadId = newLeadId;
+      // Create lead with contact info (even without presupuesto)
+      if (data.nombre || data.contacto) {
+        const newLeadId = await leadService.loadOrCreateLead(visitorId, tenantId, sourceType, data, undefined);
+        console.log("📥 guardarContacto newLeadId:", newLeadId);
+        if (newLeadId) {
+          setLeadId(session, newLeadId);
+          leadId = newLeadId;
+        }
       }
     }
 
