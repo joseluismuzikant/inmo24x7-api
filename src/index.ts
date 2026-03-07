@@ -13,6 +13,7 @@ import { adminRouter } from "./routes/admin.js";
 import { whatsappRouter } from "./routes/whatsapp.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { swaggerSpec } from "./config/swagger.js";
+import { getSupabaseClient } from "./lib/supabase.js";
 
 const app = express();
 const appVersion = process.env.APP_VERSION ?? "dev";
@@ -95,6 +96,35 @@ app.get("/health", (_req, res) =>
     commit: appCommitSha,
   })
 );
+
+app.get("/health/supabase", async (_req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+
+    const { error } = await supabase
+      .from("profiles")
+      .select("id", { head: true, count: "exact" });
+
+    if (error) {
+      return res.status(500).json({
+        ok: false,
+        supabase: false,
+        error: error.message,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      supabase: true,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      supabase: false,
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+});
 
 // Swagger documentation (unprotected)
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

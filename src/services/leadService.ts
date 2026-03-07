@@ -1,4 +1,4 @@
-import { createLead, updateLead, getLeadByVisitorId, type Lead, type SourceType } from "../repositories/leadRepo.js";
+import { createLead, updateLead, type SourceType } from "../repositories/leadRepo.js";
 import type { LeadData } from "./sessionService.js";
 
 export class LeadService {

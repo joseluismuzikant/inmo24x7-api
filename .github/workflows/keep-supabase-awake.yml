@@ -10,4 +10,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping app
-        run: curl -f https://api.inmo24x7.com/health
+        run: curl -f https://api.inmo24x7.com/health/supabase
