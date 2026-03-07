@@ -1,0 +1,13 @@
+name: keep-supabase-awake
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping app
+        run: curl -f https://api.inmo24x7.com/health
