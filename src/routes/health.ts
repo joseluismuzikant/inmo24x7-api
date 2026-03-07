@@ -16,10 +16,9 @@ healthRouter.get("/health/supabase", async (_req, res) => {
 
     const result = await supabase
       .from("profiles")
-      .select("id")
+      .select("tenant_id")
       .limit(1);
 
-    console.log("[GET /health/supabase]", JSON.stringify(result, null, 2));
 
     if (result.error) {
       return res.status(500).json({
