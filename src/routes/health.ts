@@ -3,10 +3,15 @@ import { getSupabaseClient } from  "../lib/supabase.js";
 
 export const healthRouter = Router();
 
+const appVersion = process.env.APP_VERSION ?? "dev";
+const appCommitSha = process.env.APP_COMMIT_SHA ?? "local";
+
 healthRouter.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "inmo24x7-api",
+    version: appVersion,
+    commit: appCommitSha,
   });
 });
 
