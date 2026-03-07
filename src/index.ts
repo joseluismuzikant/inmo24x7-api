@@ -11,6 +11,7 @@ import { messageRouter } from "./routes/message.js";
 import { leadsRouter } from "./routes/leads.js";
 import { adminRouter } from "./routes/admin.js";
 import { whatsappRouter } from "./routes/whatsapp.js";
+import { healthRouter } from "./routes/health.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { swaggerSpec } from "./config/swagger.js";
 import { getSupabaseClient } from "./lib/supabase.js";
@@ -64,67 +65,8 @@ app.use(
 );
 app.use(express.static(path.join(process.cwd(), "src", "public")));
 
-/**
- * @swagger
- * /health:
- *   get:
- *     summary: Health check
- *     description: Check if the API service is running
- *     tags: [Health]
- *     responses:
- *       200:
- *         description: Service is healthy
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 ok:
- *                   type: boolean
- *                 service:
- *                   type: string
- *                 version:
- *                   type: string
- *                 commit:
- *                   type: string
- */
-app.get("/health", (_req, res) =>
-  res.json({
-    ok: true,
-    service: "inmo24x7-api",
-    version: appVersion,
-    commit: appCommitSha,
-  })
-);
-
-app.get("/health/supabase", async (_req, res) => {
-  try {
-    const supabase = getSupabaseClient();
-
-    const { error } = await supabase
-      .from("profiles")
-      .select("id", { head: true, count: "exact" });
-
-    if (error) {
-      return res.status(500).json({
-        ok: false,
-        supabase: false,
-        error: error.message,
-      });
-    }
-
-    return res.json({
-      ok: true,
-      supabase: true,
-    });
-  } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      supabase: false,
-      error: err instanceof Error ? err.message : "Unknown error",
-    });
-  }
-});
+// health endpoints (unprotected) 
+app.use(healthRouter);
 
 // Swagger documentation (unprotected)
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
