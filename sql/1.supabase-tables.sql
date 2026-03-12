@@ -19,9 +19,10 @@ CREATE TABLE public.leads (
 );
 CREATE TABLE public.profiles (
   user_id uuid NOT NULL,
-  tenant_id uuid NOT NULL,
-  role text NOT NULL DEFAULT 'owner'::text CHECK (role = ANY (ARRAY['owner'::text, 'admin'::text, 'agent'::text])),
+  tenant_id uuid,
+  role text NOT NULL DEFAULT 'owner'::text CHECK (role = ANY (ARRAY['owner'::text, 'manager'::text, 'agent'::text, 'viewer'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
+  is_admin boolean NOT NULL DEFAULT false,
   CONSTRAINT profiles_pkey PRIMARY KEY (user_id),
   CONSTRAINT profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
@@ -33,6 +34,19 @@ CREATE TABLE public.tenants (
   status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'disabled'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  contact_name text,
+  contact_email text,
+  contact_phone text,
+  company_name text,
+  brand_name text,
+  address text,
+  city text,
+  province text,
+  country text DEFAULT 'AR'::text,
+  logo_url text,
+  website_url text,
+  plan_code text DEFAULT 'free'::text,
+  settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   CONSTRAINT tenants_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.whatsapp_numbers (
