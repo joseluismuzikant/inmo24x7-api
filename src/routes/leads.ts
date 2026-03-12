@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getAllLeads, getLeadById, deleteLead } from "../repositories/leadRepo.js";
 import { type AuthenticatedRequest } from "../middleware/auth.js";
-import { requireTenantId, requireLeadId } from "../services/userService.js";
+import { getTenantIdForQuery, requireLeadId } from "../services/userService.js";
 
 const leadsRouter = Router();
 
@@ -14,6 +14,12 @@ const leadsRouter = Router();
  *     tags: [Leads]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: tenant_id
+ *         schema:
+ *           type: string
+ *         description: Tenant ID (optional, for admin)
  *     responses:
  *       200:
  *         description: List of leads retrieved successfully
@@ -33,7 +39,7 @@ const leadsRouter = Router();
  */
 leadsRouter.get("/api/leads", async (req: AuthenticatedRequest, res) => {
   try {
-    const tenant_id = requireTenantId(req);
+    const tenant_id = getTenantIdForQuery(req);
     const leads = await getAllLeads(tenant_id);
     res.json({ leads });
   } catch (error: any) {
@@ -61,6 +67,11 @@ leadsRouter.get("/api/leads", async (req: AuthenticatedRequest, res) => {
  *         schema:
  *           type: integer
  *         description: Lead ID
+ *       - in: query
+ *         name: tenant_id
+ *         schema:
+ *           type: string
+ *         description: Tenant ID (optional, for admin)
  *     responses:
  *       200:
  *         description: Lead retrieved successfully
@@ -82,7 +93,7 @@ leadsRouter.get("/api/leads", async (req: AuthenticatedRequest, res) => {
  */
 leadsRouter.get("/api/leads/:id", async (req: AuthenticatedRequest, res) => {
   try {
-    const tenant_id = requireTenantId(req);
+    const tenant_id = getTenantIdForQuery(req);
     const leadId = requireLeadId(req);
 
     const lead = await getLeadById(leadId, tenant_id);
@@ -116,6 +127,11 @@ leadsRouter.get("/api/leads/:id", async (req: AuthenticatedRequest, res) => {
  *         schema:
  *           type: integer
  *         description: Lead ID
+ *       - in: query
+ *         name: tenant_id
+ *         schema:
+ *           type: string
+ *         description: Tenant ID (optional, for admin)
  *     responses:
  *       200:
  *         description: Lead deleted successfully
@@ -135,7 +151,7 @@ leadsRouter.get("/api/leads/:id", async (req: AuthenticatedRequest, res) => {
  */
 leadsRouter.delete("/api/leads/:id", async (req: AuthenticatedRequest, res) => {
   try {
-    const tenant_id = requireTenantId(req);
+    const tenant_id = getTenantIdForQuery(req);
     const leadId = requireLeadId(req);
 
     await deleteLead(leadId, tenant_id);

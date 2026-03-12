@@ -5,8 +5,9 @@ export type SourceType = 'web_chat' | 'whatsapp' | 'form' | 'backoffice';
 export interface AuthUser {
   id: string;
   email?: string;
-  tenant_id: string;
-  role: string;
+  tenant_id: string | null;
+  role: string | null;
+  is_admin: boolean;
   source_type?: SourceType;
 }
 
@@ -26,7 +27,7 @@ export async function getAuthUser(token: string): Promise<AuthUser> {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('tenant_id, role')
+    .select('tenant_id, role, is_admin')
     .eq('user_id', userId)
     .single();
 
@@ -34,7 +35,7 @@ export async function getAuthUser(token: string): Promise<AuthUser> {
     throw new Error("No profile found");
   }
 
-  if (!profile.tenant_id) {
+  if (!profile.is_admin && !profile.tenant_id) {
     throw new Error("No tenant assigned");
   }
 
@@ -43,5 +44,6 @@ export async function getAuthUser(token: string): Promise<AuthUser> {
     email: user.email,
     tenant_id: profile.tenant_id,
     role: profile.role,
+    is_admin: profile.is_admin,
   };
 }

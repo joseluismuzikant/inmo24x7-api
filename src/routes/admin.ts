@@ -1,12 +1,14 @@
 import { Router } from "express";
 import { listLeads, getLeadById } from "../repositories/leadRepo.js";
 import { type AuthenticatedRequest } from "../middleware/auth.js";
+import { getTenantIdForQuery } from "../services/userService.js";
 
 export const adminRouter = Router();
 
 /* =========================
    Utils simples
 ========================= */
+// ... (rest of utils)
 
 function esc(v: any) {
   return String(v ?? "")
@@ -39,8 +41,10 @@ function formatDate(v: any) {
 ========================= */
 
 adminRouter.get("/admin/leads", async (req: AuthenticatedRequest, res) => {
-  const tenant_id = req.user?.tenant_id;
-  if (!tenant_id) {
+  let tenant_id: string | null;
+  try {
+    tenant_id = getTenantIdForQuery(req);
+  } catch (e) {
     return res.status(401).json({ error: "Unauthorized - No tenant_id" });
   }
   const leads = await listLeads(tenant_id, 50);
@@ -144,8 +148,10 @@ adminRouter.get("/admin/leads", async (req: AuthenticatedRequest, res) => {
 ========================= */
 
 adminRouter.get("/admin/leads/:id", async (req: AuthenticatedRequest, res) => {
-  const tenant_id = req.user?.tenant_id;
-  if (!tenant_id) {
+  let tenant_id: string | null;
+  try {
+    tenant_id = getTenantIdForQuery(req);
+  } catch (e) {
     return res.status(401).json({ error: "Unauthorized - No tenant_id" });
   }
   const id = Number(req.params.id);
@@ -211,3 +217,4 @@ adminRouter.get("/admin/leads/:id", async (req: AuthenticatedRequest, res) => {
 </html>
   `);
 });
+

@@ -49,7 +49,7 @@ export async function createLead(input: CreateLeadInput): Promise<number> {
   return data.id;
 }
 
-export async function updateLead(leadId: number, tenant_id: string, patch: UpdateLeadInput): Promise<void> {
+export async function updateLead(leadId: number, tenant_id: string | null, patch: UpdateLeadInput): Promise<void> {
   console.log("📝 updateLead called with leadId:", leadId, "patch:", patch);
   const client = getSupabaseClient();
   
@@ -66,25 +66,35 @@ export async function updateLead(leadId: number, tenant_id: string, patch: Updat
   
   if (Object.keys(updateData).length === 0) return;
 
-  const { error } = await client
+  let query = client
     .from("leads")
     .update(updateData)
-    .eq("id", leadId)
-    .eq("tenant_id", tenant_id);
+    .eq("id", leadId);
+  
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+
+  const { error } = await query;
 
   if (error) {
     throw new Error(`Failed to update lead: ${error.message}`);
   }
 }
 
-export async function getLeadByVisitorId(visitorId: string, tenant_id: string): Promise<Lead | null> {
+export async function getLeadByVisitorId(visitorId: string, tenant_id: string | null): Promise<Lead | null> {
   const client = getSupabaseClient();
   
-  const { data, error } = await client
+  let query = client
     .from("leads")
-    .select("*")
+    .select("*");
+    
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data, error } = await query
     .eq("visitor_id", visitorId)
-    .eq("tenant_id", tenant_id)
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
@@ -97,14 +107,19 @@ export async function getLeadByVisitorId(visitorId: string, tenant_id: string): 
   return data;
 }
 
-export async function getLeadById(leadId: number, tenant_id: string): Promise<Lead | null> {
+export async function getLeadById(leadId: number, tenant_id: string | null): Promise<Lead | null> {
   const client = getSupabaseClient();
   
-  const { data, error } = await client
+  let query = client
     .from("leads")
-    .select("*")
+    .select("*");
+    
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data, error } = await query
     .eq("id", leadId)
-    .eq("tenant_id", tenant_id)
     .single();
 
   if (error) {
@@ -115,14 +130,18 @@ export async function getLeadById(leadId: number, tenant_id: string): Promise<Le
   return data;
 }
 
-export async function getAllLeads(tenant_id: string): Promise<Lead[]> {
+export async function getAllLeads(tenant_id: string | null): Promise<Lead[]> {
   const client = getSupabaseClient();
   
-  const { data, error } = await client
+  let query = client
     .from("leads")
-    .select("*")
-    .eq("tenant_id", tenant_id)
-    .order("created_at", { ascending: false });
+    .select("*");
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) {
     throw new Error(`Failed to get leads: ${error.message}`);
@@ -131,29 +150,39 @@ export async function getAllLeads(tenant_id: string): Promise<Lead[]> {
   return data || [];
 }
 
-export async function deleteLead(leadId: number, tenant_id: string): Promise<void> {
+export async function deleteLead(leadId: number, tenant_id: string | null): Promise<void> {
   const client = getSupabaseClient();
   
-  const { error } = await client
+  let query = client
     .from("leads")
     .delete()
-    .eq("id", leadId)
-    .eq("tenant_id", tenant_id);
+    .eq("id", leadId);
+    
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { error } = await query;
 
   if (error) {
     throw new Error(`Failed to delete lead: ${error.message}`);
   }
 }
 
-export async function listLeads(tenant_id: string, limit = 50): Promise<Lead[]> {
+export async function listLeads(tenant_id: string | null, limit = 50): Promise<Lead[]> {
   const client = getSupabaseClient();
   
-  const { data, error } = await client
+  let query = client
     .from("leads")
     .select("*")
-    .eq("tenant_id", tenant_id)
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Failed to list leads: ${error.message}`);
@@ -163,19 +192,24 @@ export async function listLeads(tenant_id: string, limit = 50): Promise<Lead[]> 
 }
 
 export async function listLeadsBySourceType(
-  tenant_id: string,
+  tenant_id: string | null,
   sourceType: SourceType, 
   limit = 50
 ): Promise<Lead[]> {
   const client = getSupabaseClient();
   
-  const { data, error } = await client
+  let query = client
     .from("leads")
     .select("*")
-    .eq("tenant_id", tenant_id)
     .eq("source_type", sourceType)
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(`Failed to list leads by source: ${error.message}`);
