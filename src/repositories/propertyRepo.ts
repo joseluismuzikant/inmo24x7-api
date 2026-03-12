@@ -105,8 +105,37 @@ async function loadPropertiesDB(tenant_id: string): Promise<Property[]> {
   return properties;
 }
 
+export async function getAllProperties(tenant_id: string | null): Promise<Property[]> {
+  const client = getSupabaseClient();
+  
+  let query = client
+    .from("zp_postings")
+    .select(`
+      id, url, title, operation_type, price_amount, price_currency,
+      real_estate_type, description, address_name, location_name,
+      city_name, state_acronym, latitude, longitude, status,
+      publisher_name, publisher_url, whatsapp, main_features, general_features
+    `);
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data: postings, error } = await query;
+
+  if (error) {
+    throw new Error(`Failed to fetch properties: ${error.message}`);
+  }
+
+  if (!postings) return [];
+
+  return postings
+    .map(mapPostingToProperty)
+    .filter((p): p is Property => p !== null);
+}
+
 export async function searchPropertiesInSupabase(args: {
-  tenant_id: string;
+  tenant_id: string | null;
   operacion: Operation;
   zona: string;
   limit?: number;
@@ -117,7 +146,7 @@ export async function searchPropertiesInSupabase(args: {
   const client = getSupabaseClient();
   
   // Query with filters at database level
-  const { data: postings, error } = await client
+  let query = client
     .from("zp_postings")
     .select(`
       id,
@@ -140,65 +169,30 @@ export async function searchPropertiesInSupabase(args: {
       whatsapp,
       main_features,
       general_features
-    `)
-    .eq("tenant_id", tenant_id)
+    `);
+    
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+  
+  const { data: postings, error } = await query
     .eq("location_name", zona)
     .eq("operation_type", operacion.charAt(0).toUpperCase() + operacion.slice(1))
     .limit(limit);
 
   if (error) {
     console.error("❌ Error querying Supabase:", error);
-    // Fallback to in-memory search
-    const allProps = await loadPropertiesDB(tenant_id);
-    return allProps.filter(p => 
-      p.operacion === operacion && 
-      p.zona.toLowerCase() === zona.toLowerCase()
-    ).slice(0, limit);
+    // Fallback logic
+    return [];
   }
 
   console.log(`✅ Supabase query returned: ${postings?.length || 0} rows`);
 
   if (!postings || postings.length === 0) {
-    console.log("⚠️ No results from filtered query, trying partial match...");
-    // Try partial match
-    const { data: partialPostings, error: partialError } = await client
-      .from("zp_postings")
-      .select(`
-        id,
-        url,
-        title,
-        operation_type,
-        price_amount,
-        price_currency,
-        real_estate_type,
-        description,
-        address_name,
-        location_name,
-        city_name,
-        state_acronym,
-        latitude,
-        longitude,
-        status,
-        publisher_name,
-        publisher_url,
-        whatsapp,
-        main_features,
-        general_features
-      `)
-      .eq("tenant_id", tenant_id)
-      .ilike("location_name", `%${zona}%`)
-      .ilike("operation_type", `%${operacion}%`)
-      .limit(limit);
-    
-    if (partialError || !partialPostings || partialPostings.length === 0) {
-      console.log("⚠️ No results from partial match either");
-      return [];
-    }
-    
-    console.log(`✅ Partial match query returned: ${partialPostings.length} rows`);
-    return partialPostings.map(mapPostingToProperty).filter((p): p is Property => p !== null);
+    console.log("⚠️ No results from filtered query");
+    return [];
   }
-
+  
   return postings.map(mapPostingToProperty).filter((p): p is Property => p !== null);
 }
 

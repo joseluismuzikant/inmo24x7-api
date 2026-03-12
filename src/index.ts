@@ -9,6 +9,7 @@ import swaggerUi from "swagger-ui-express";
 
 import { messageRouter } from "./routes/message.js";
 import { leadsRouter } from "./routes/leads.js";
+import { propertiesRouter } from "./routes/properties.js";
 import { adminRouter } from "./routes/admin.js";
 import { whatsappRouter } from "./routes/whatsapp.js";
 import { healthRouter } from "./routes/health.js";
@@ -81,6 +82,7 @@ app.use(authMiddleware);
 // Protected routes
 app.use(messageRouter);
 app.use(leadsRouter);
+app.use(propertiesRouter);
 app.use(adminRouter);
 
 const port = Number(process.env.PORT ?? 3000);
