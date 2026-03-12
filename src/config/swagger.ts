@@ -1,3 +1,4 @@
+import path from "path";
 import swaggerJsdoc from "swagger-jsdoc";
 
 const options = {
@@ -10,8 +11,8 @@ const options = {
     },
     servers: [
       {
-        url: "http://localhost:3000",
-        description: "Development server",
+        url: process.env.PUBLIC_API_URL || "http://localhost:3000",
+        description: "API server",
       },
     ],
     components: {
@@ -23,98 +24,15 @@ const options = {
         },
       },
       schemas: {
-        Lead: {
-          type: "object",
-          properties: {
-            id: {
-              type: "integer",
-              description: "Unique identifier for the lead",
-            },
-            tenant_id: {
-              type: "string",
-              description: "Tenant identifier",
-            },
-            visitor_id: {
-              type: "string",
-              description: "Visitor session identifier",
-            },
-            source_type: {
-              type: "string",
-              enum: ["web_chat", "whatsapp", "form", "backoffice"],
-              description: "Source of the lead",
-            },
-            operacion: {
-              type: "string",
-              description: "Type of operation (venta, alquiler)",
-            },
-            zona: {
-              type: "string",
-              description: "Target zone/area",
-            },
-            presupuesto_max: {
-              type: "number",
-              description: "Maximum budget",
-            },
-            nombre: {
-              type: "string",
-              description: "Lead name",
-            },
-            contacto: {
-              type: "string",
-              description: "Contact information",
-            },
-            summary: {
-              type: "string",
-              description: "Summary of the lead conversation",
-            },
-            created_at: {
-              type: "string",
-              format: "date-time",
-              description: "When the lead was created",
-            },
-            updated_at: {
-              type: "string",
-              format: "date-time",
-              description: "When the lead was last updated",
-            },
-          },
-        },
-        MessageRequest: {
-          type: "object",
-          required: ["userId", "text"],
-          properties: {
-            userId: {
-              type: "string",
-              description: "Unique identifier for the user",
-            },
-            text: {
-              type: "string",
-              description: "Message text from the user",
-            },
-          },
-        },
-        MessageResponse: {
-          type: "object",
-          properties: {
-            reply: {
-              type: "string",
-              description: "Bot response message",
-            },
-          },
-        },
-        Error: {
-          type: "object",
-          properties: {
-            error: {
-              type: "string",
-              description: "Error message",
-            },
-          },
-        },
       },
     },
   },
-  apis: ["./src/routes/*.ts", "./src/index.ts"],
+  apis: [
+    path.resolve(process.cwd(), "src/routes/**/*.ts"),
+    path.resolve(process.cwd(), "src/index.ts"),
+    path.resolve(process.cwd(), "dist/routes/**/*.js"),
+    path.resolve(process.cwd(), "dist/index.js"),
+  ],
 };
 
 export const swaggerSpec = swaggerJsdoc(options);
