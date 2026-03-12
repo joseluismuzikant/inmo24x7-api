@@ -35,6 +35,22 @@ CREATE TABLE public.tenants (
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT tenants_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.whatsapp_numbers (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  phone_number_id text NOT NULL,
+  display_phone_number text,
+  business_phone_number text,
+  name text,
+  access_token text,
+  token_expires_at timestamp with time zone,
+  status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'inactive'::text, 'pending'::text, 'disabled'::text])),
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT whatsapp_numbers_pkey PRIMARY KEY (id),
+  CONSTRAINT whatsapp_numbers_tenant_fk FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
+);
 CREATE TABLE public.zp_posting_pictures (
   id bigint NOT NULL DEFAULT nextval('zp_posting_pictures_id_seq'::regclass),
   posting_id text NOT NULL,
