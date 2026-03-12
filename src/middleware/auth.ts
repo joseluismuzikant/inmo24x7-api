@@ -6,8 +6,9 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email?: string;
-    tenant_id?: string;
-    role?: string;
+    tenant_id?: string | null;
+    role?: string | null;
+    is_admin: boolean;
     source_type?: SourceType;
     [key: string]: any;
   };
@@ -45,6 +46,7 @@ export async function authMiddleware(
       email: authUser.email,
       tenant_id: authUser.tenant_id,
       role: authUser.role,
+      is_admin: authUser.is_admin,
       source_type: headerSourceType || 'web_chat',
     };
 
