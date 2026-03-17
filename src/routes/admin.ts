@@ -1,7 +1,5 @@
 import { Router, Response } from "express";
-import { listLeads, getLeadById } from "../repositories/leadRepo.js";
 import { type AuthenticatedRequest } from "../middleware/auth.js";
-import { getTenantIdForQuery } from "../services/userService.js";
 import { 
   onboardTenant, 
   createTenantChannel, 
@@ -100,21 +98,4 @@ adminRouter.get("/admin/tenants", requireAdmin, async (req: AuthenticatedRequest
     const data = await listTenants();
     return res.json(data);
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
-});
-
-adminRouter.get("/admin/leads", requireAdmin, async (req: AuthenticatedRequest, res) => {
-  let tenant_id: string | null;
-  try { tenant_id = getTenantIdForQuery(req); } catch (e) { return res.status(401).json({ error: "Unauthorized" }); }
-  const leads = await listLeads(tenant_id, 50);
-  const rows = leads.map((l: any) => `<tr><td><a href="/admin/leads/${l.id}">${l.id}</a></td><td>${formatDate(l.created_at)}</td><td>${esc(l.operacion)}</td><td>${esc(l.zona)}</td><td style="text-align:right">${money(l.presupuesto_max)}</td><td>${esc(l.nombre)}</td><td>${esc(l.contacto)}</td><td class="muted">${esc(l.summary)}</td></tr>`).join("");
-  res.type("html").send(`<!doctype html><html><body><h1>Leads</h1><table><thead><tr><th>ID</th><th>Fecha</th><th>Op</th><th>Zona</th><th>Presupuesto</th><th>Nombre</th><th>Contacto</th><th>Resumen</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
-});
-
-adminRouter.get("/admin/leads/:id", requireAdmin, async (req: AuthenticatedRequest, res) => {
-  let tenant_id: string | null;
-  try { tenant_id = getTenantIdForQuery(req); } catch (e) { return res.status(401).json({ error: "Unauthorized" }); }
-  const id = Number(req.params.id);
-  const lead = await getLeadById(id, tenant_id);
-  if (!lead) return res.status(404).send("Not found");
-  res.type("html").send(`<!doctype html><html><body><a href="/admin/leads">Volver</a><h1>Lead #${id}</h1><pre>${esc(JSON.stringify(lead, null, 2))}</pre></body></html>`);
 });
