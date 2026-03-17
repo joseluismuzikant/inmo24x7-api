@@ -93,6 +93,15 @@ adminRouter.patch("/admin/channels/:channelId", requireAdmin, async (req: Authen
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
 
+/**
+ * @swagger
+ * /admin/tenants:
+ *   get:
+ *     summary: List all tenants
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
 adminRouter.get("/admin/tenants", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const data = await listTenants();
