@@ -1,6 +1,19 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.audit_log (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  tenant_id uuid,
+  actor_user_id uuid,
+  actor_type text NOT NULL DEFAULT 'user'::text,
+  action text NOT NULL,
+  entity_type text NOT NULL,
+  entity_id text,
+  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
+);
 CREATE TABLE public.leads (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   tenant_id uuid NOT NULL,
@@ -20,12 +33,38 @@ CREATE TABLE public.leads (
 CREATE TABLE public.profiles (
   user_id uuid NOT NULL,
   tenant_id uuid,
-  role text NOT NULL DEFAULT 'owner'::text CHECK (role = ANY (ARRAY['owner'::text, 'manager'::text, 'agent'::text, 'viewer'::text])),
+  role text NOT NULL DEFAULT 'viewer'::text CHECK (role = ANY (ARRAY['owner'::text, 'manager'::text, 'agent'::text, 'viewer'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   is_admin boolean NOT NULL DEFAULT false,
   CONSTRAINT profiles_pkey PRIMARY KEY (user_id),
   CONSTRAINT profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
   CONSTRAINT profiles_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
+);
+CREATE TABLE public.tenant_channels (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL,
+  type text NOT NULL CHECK (type = ANY (ARRAY['email'::text, 'whatsapp'::text])),
+  event text NOT NULL DEFAULT 'new_lead'::text CHECK (event = ANY (ARRAY['new_lead'::text, 'daily_summary'::text, 'system_alert'::text])),
+  name text,
+  destination text NOT NULL,
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  is_active boolean NOT NULL DEFAULT true,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tenant_channels_pkey PRIMARY KEY (id),
+  CONSTRAINT tenant_channels_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
+);
+CREATE TABLE public.tenant_plans (
+  tenant_id uuid NOT NULL,
+  plan_code text NOT NULL DEFAULT 'free'::text,
+  status text NOT NULL DEFAULT 'trial'::text,
+  limits jsonb NOT NULL DEFAULT '{}'::jsonb,
+  trial_ends_at timestamp with time zone,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tenant_plans_pkey PRIMARY KEY (tenant_id),
+  CONSTRAINT tenant_plans_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(id)
 );
 CREATE TABLE public.tenants (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -45,7 +84,6 @@ CREATE TABLE public.tenants (
   country text DEFAULT 'AR'::text,
   logo_url text,
   website_url text,
-  plan_code text DEFAULT 'free'::text,
   settings jsonb NOT NULL DEFAULT '{}'::jsonb,
   CONSTRAINT tenants_pkey PRIMARY KEY (id)
 );

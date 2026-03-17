@@ -4,7 +4,6 @@ dotenv.config();
 
 import express from "express";
 import cors from "cors";
-import path from "node:path";
 import swaggerUi from "swagger-ui-express";
 
 import { messageRouter } from "./routes/message.js";
@@ -15,7 +14,6 @@ import { whatsappRouter } from "./routes/whatsapp.js";
 import { healthRouter } from "./routes/health.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { swaggerSpec } from "./config/swagger.js";
-import { getSupabaseClient } from "./lib/supabase.js";
 
 const app = express();
 const appVersion = process.env.APP_VERSION ?? "dev";
@@ -64,7 +62,6 @@ app.use(
     },
   })
 );
-app.use(express.static(path.join(process.cwd(), "src", "public")));
 
 // health endpoints (unprotected) 
 app.use(healthRouter);
