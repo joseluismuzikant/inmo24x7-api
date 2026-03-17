@@ -1,220 +1,120 @@
-import { Router } from "express";
+import { Router, Response } from "express";
 import { listLeads, getLeadById } from "../repositories/leadRepo.js";
 import { type AuthenticatedRequest } from "../middleware/auth.js";
 import { getTenantIdForQuery } from "../services/userService.js";
+import { 
+  onboardTenant, 
+  createTenantChannel, 
+  listTenantChannels, 
+  updateChannel,
+  listTenants 
+} from "../services/adminTenants.js";
 
 export const adminRouter = Router();
 
+const requireAdmin = (req: AuthenticatedRequest, res: Response, next: any) => {
+  if (req.user?.is_admin) {
+    next();
+  } else {
+    res.status(403).json({ error: "Forbidden - Requires admin access" });
+  }
+};
+
 /* =========================
-   Utils simples
+   UTILS
 ========================= */
-// ... (rest of utils)
-
-function esc(v: any) {
-  return String(v ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function money(v: any) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "";
-  return n.toLocaleString("es-AR");
-}
-
+function esc(v: any) { return String(v ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
+function money(v: any) { const n = Number(v); return !Number.isFinite(n) ? "" : n.toLocaleString("es-AR"); }
 function formatDate(v: any) {
   if (!v) return "";
   const d = new Date(v);
-  if (isNaN(d.getTime())) return String(v);
-  return d.toLocaleString("es-AR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 /* =========================
-   LISTA DE LEADS
+   ONBOARDING & CHANNELS
 ========================= */
 
-adminRouter.get("/admin/leads", async (req: AuthenticatedRequest, res) => {
-  let tenant_id: string | null;
+/**
+ * @swagger
+ * /admin/onboard:
+ *   post:
+ *     summary: Onboard a new tenant
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ */
+adminRouter.post("/admin/onboard", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    tenant_id = getTenantIdForQuery(req);
-  } catch (e) {
-    return res.status(401).json({ error: "Unauthorized - No tenant_id" });
+    const result = await onboardTenant(req.body, req.user!.id);
+    return res.status(201).json(result);
+  } catch (err: any) {
+    if (err.message === "SLUG_EXISTS") return res.status(409).json({ error: "Slug already exists" });
+    console.error("Onboarding error:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
+});
+
+/**
+ * @swagger
+ * /admin/tenants/{id}/channels:
+ *   post:
+ *     summary: Create tenant channel
+ *     tags: [Admin]
+ *   get:
+ *     summary: List tenant channels
+ *     tags: [Admin]
+ */
+adminRouter.post("/admin/tenants/:id/channels", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  const { channel_type, name, config } = req.body;
+  if (!channel_type || !name) return res.status(400).json({ error: "Missing fields" });
+  try {
+    const data = await createTenantChannel(req.params.id, { channel_type, name, config });
+    return res.status(201).json(data);
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
+adminRouter.get("/admin/tenants/:id/channels", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = await listTenantChannels(req.params.id);
+    return res.json(data);
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * @swagger
+ * /admin/channels/{channelId}:
+ *   patch:
+ *     summary: Update channel
+ *     tags: [Admin]
+ */
+adminRouter.patch("/admin/channels/:channelId", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = await updateChannel(req.params.channelId, req.body);
+    return res.json(data);
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
+adminRouter.get("/admin/tenants", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const data = await listTenants();
+    return res.json(data);
+  } catch (err: any) { return res.status(500).json({ error: err.message }); }
+});
+
+adminRouter.get("/admin/leads", requireAdmin, async (req: AuthenticatedRequest, res) => {
+  let tenant_id: string | null;
+  try { tenant_id = getTenantIdForQuery(req); } catch (e) { return res.status(401).json({ error: "Unauthorized" }); }
   const leads = await listLeads(tenant_id, 50);
-
-  const rows = leads
-    .map((l: any) => `
-      <tr>
-        <td><a href="/admin/leads/${l.id}">${l.id}</a></td>
-        <td>${formatDate(l.created_at)}</td>
-        <td>${esc(l.operacion)}</td>
-        <td>${esc(l.zona)}</td>
-        <td style="text-align:right">${money(l.presupuesto_max)}</td>
-        <td>${esc(l.nombre)}</td>
-        <td>${esc(l.contacto)}</td>
-        <td class="muted">${esc(l.summary)}</td>
-      </tr>
-    `)
-    .join("");
-
-  res.type("html").send(`
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <title>Inmo24x7 – Leads</title>
-  <style>
-    body {
-      font-family: system-ui, Arial;
-      background: #0b1020;
-      color: #fff;
-      padding: 24px;
-    }
-    h1 { margin-bottom: 4px; }
-    .muted { color: #aaa; font-size: 13px; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 16px;
-    }
-    th, td {
-      padding: 10px;
-      border-bottom: 1px solid #333;
-      vertical-align: top;
-    }
-    th {
-      text-align: left;
-      font-size: 12px;
-      color: #bbb;
-    }
-    tr:hover td { background: #141a33; }
-    a { color: #1abc9c; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .top {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .btn {
-      padding: 8px 12px;
-      border-radius: 8px;
-      background: #1abc9c;
-      color: #000;
-      text-decoration: none;
-      font-weight: 600;
-    }
-  </style>
-</head>
-<body>
-  <div class="top">
-    <div>
-      <h1>Leads capturados</h1>
-      <div class="muted">Panel demo – Inmo24x7</div>
-    </div>
-    <a class="btn" href="/admin/leads">Refrescar</a>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th>
-        <th>Fecha</th>
-        <th>Operación</th>
-        <th>Zona</th>
-        <th style="text-align:right">Presupuesto</th>
-        <th>Nombre</th>
-        <th>Contacto</th>
-        <th>Resumen</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows || `<tr><td colspan="8" class="muted">No hay leads todavía</td></tr>`}
-    </tbody>
-  </table>
-</body>
-</html>
-  `);
+  const rows = leads.map((l: any) => `<tr><td><a href="/admin/leads/${l.id}">${l.id}</a></td><td>${formatDate(l.created_at)}</td><td>${esc(l.operacion)}</td><td>${esc(l.zona)}</td><td style="text-align:right">${money(l.presupuesto_max)}</td><td>${esc(l.nombre)}</td><td>${esc(l.contacto)}</td><td class="muted">${esc(l.summary)}</td></tr>`).join("");
+  res.type("html").send(`<!doctype html><html><body><h1>Leads</h1><table><thead><tr><th>ID</th><th>Fecha</th><th>Op</th><th>Zona</th><th>Presupuesto</th><th>Nombre</th><th>Contacto</th><th>Resumen</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
 });
 
-/* =========================
-   DETALLE DE LEAD
-========================= */
-
-adminRouter.get("/admin/leads/:id", async (req: AuthenticatedRequest, res) => {
+adminRouter.get("/admin/leads/:id", requireAdmin, async (req: AuthenticatedRequest, res) => {
   let tenant_id: string | null;
-  try {
-    tenant_id = getTenantIdForQuery(req);
-  } catch (e) {
-    return res.status(401).json({ error: "Unauthorized - No tenant_id" });
-  }
+  try { tenant_id = getTenantIdForQuery(req); } catch (e) { return res.status(401).json({ error: "Unauthorized" }); }
   const id = Number(req.params.id);
-  if (!Number.isFinite(id)) {
-    return res.status(400).send("ID inválido");
-  }
-
   const lead = await getLeadById(id, tenant_id);
-  if (!lead) {
-    return res.status(404).send("Lead no encontrado");
-  }
-
-  res.type("html").send(`
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <title>Lead #${id}</title>
-  <style>
-    body {
-      font-family: system-ui, Arial;
-      background: #0b1020;
-      color: #fff;
-      padding: 24px;
-    }
-    a { color: #1abc9c; }
-    .box {
-      background: #141a33;
-      padding: 16px;
-      border-radius: 12px;
-      margin-bottom: 16px;
-    }
-    .k { color: #aaa; font-size: 12px; }
-    .v { font-size: 14px; margin-bottom: 10px; }
-    pre {
-      background: #000;
-      padding: 12px;
-      border-radius: 8px;
-      overflow: auto;
-    }
-  </style>
-</head>
-<body>
-  <a href="/admin/leads">← Volver</a>
-
-  <h1>Lead #${id}</h1>
-
-  <div class="box">
-    <div class="k">Fecha</div><div class="v">${formatDate(lead.created_at)}</div>
-    <div class="k">Operación</div><div class="v">${esc(lead.operacion)}</div>
-    <div class="k">Zona</div><div class="v">${esc(lead.zona)}</div>
-    <div class="k">Presupuesto</div><div class="v">${money(lead.presupuesto_max)}</div>
-    <div class="k">Nombre</div><div class="v">${esc(lead.nombre)}</div>
-    <div class="k">Contacto</div><div class="v">${esc(lead.contacto)}</div>
-    <div class="k">Resumen</div><div class="v">${esc(lead.summary)}</div>
-  </div>
-
-  <div class="box">
-    <div class="k">Raw</div>
-    <pre>${esc(JSON.stringify(lead, null, 2))}</pre>
-  </div>
-</body>
-</html>
-  `);
+  if (!lead) return res.status(404).send("Not found");
+  res.type("html").send(`<!doctype html><html><body><a href="/admin/leads">Volver</a><h1>Lead #${id}</h1><pre>${esc(JSON.stringify(lead, null, 2))}</pre></body></html>`);
 });
-
