@@ -41,6 +41,13 @@ function formatDate(v: any) {
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Tenant onboarded
+ *       403:
+ *         description: Forbidden
+ *       409:
+ *         description: Slug already exists
  */
 adminRouter.post("/admin/onboard", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -59,9 +66,35 @@ adminRouter.post("/admin/onboard", requireAdmin, async (req: AuthenticatedReques
  *   post:
  *     summary: Create tenant channel
  *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       201:
+ *         description: Channel created
+ *       403:
+ *         description: Forbidden
  *   get:
  *     summary: List tenant channels
  *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Channel list
+ *       403:
+ *         description: Forbidden
  */
 adminRouter.post("/admin/tenants/:id/channels", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   const { channel_type, name, config } = req.body;
@@ -85,6 +118,19 @@ adminRouter.get("/admin/tenants/:id/channels", requireAdmin, async (req: Authent
  *   patch:
  *     summary: Update channel
  *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: channelId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Channel updated
+ *       403:
+ *         description: Forbidden
  */
 adminRouter.patch("/admin/channels/:channelId", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -101,6 +147,11 @@ adminRouter.patch("/admin/channels/:channelId", requireAdmin, async (req: Authen
  *     tags: [Admin]
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tenant list
+ *       403:
+ *         description: Forbidden
  */
 adminRouter.get("/admin/tenants", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {

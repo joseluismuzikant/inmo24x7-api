@@ -1,4 +1,30 @@
 import type { AuthenticatedRequest } from "../middleware/auth.js";
+import { getProfileByUserId } from "../repositories/userRepo.js";
+
+export interface CurrentUserProfile {
+  id: string;
+  email?: string;
+  tenant_id: string | null;
+  role: string | null;
+  is_admin: boolean;
+}
+
+export async function getCurrentUserProfile(req: AuthenticatedRequest): Promise<CurrentUserProfile> {
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new Error("Unauthorized - No user in request");
+  }
+
+  const profile = await getProfileByUserId(userId);
+
+  return {
+    id: userId,
+    email: req.user?.email,
+    tenant_id: profile.tenant_id,
+    role: profile.role,
+    is_admin: profile.is_admin,
+  };
+}
 
 export function getTenantId(req: AuthenticatedRequest): string | null {
   return req.user?.tenant_id ?? null;
