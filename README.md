@@ -1,14 +1,14 @@
-# Inmo24x7 MVP
+# Inmo24x7 API
 
-Asistente virtual de inmobiliaria con integración de OpenAI y SQLite.
+API multi-tenant para Inmo24x7 (backoffice + chatbot + WhatsApp) con autenticación por Supabase y datos en Supabase.
 
 ## Características
 
-- Chatbot con OpenAI para calificar leads
-- Búsqueda de propiedades según operación, zona y presupuesto
-- Persistencia de leads en SQLite
-- Handoff a asesor humano
-- Sesiones en memoria por userId
+- Auth middleware con perfil (`tenant_id`, `role`, `is_admin`)
+- Onboarding admin de tenant + owner + plan + canales opcionales
+- Gestión admin de tenants (listar paginado, cambiar estado, eliminar con guardas)
+- Gestión de canales de notificación (admin y tenant)
+- Leads y propiedades con paginación (`page`, `limit`, `total`, `totalPages`)
 - Webhook de WhatsApp (verificación GET + eventos POST)
 
 ## Arquitectura del Sistema
@@ -75,15 +75,14 @@ SUPABASE_SERVICE_ROLE_KEY=tu-service-role-key
 ## Requisitos
 
 - Node.js 18+
-- SQLite (incluido via better-sqlite3)
+- Proyecto Supabase con tablas base creadas (ver carpeta `sql/`)
 
 ## Setup
 
 ```bash
 cp .env.example .env
-# Editar .env con tu OPENAI_API_KEY
+# Editar .env con OPENAI y credenciales de Supabase
 npm install
-npm run db:init
 npm run dev
 ```
 
@@ -121,7 +120,7 @@ La mayoría de los endpoints requieren autenticación mediante Bearer token en e
 Authorization: Bearer <tu_token>
 ```
 
-> **Nota:** El token de autorización se configura en la variable de entorno `AUTH_TOKEN`.
+> **Nota:** El token debe ser un JWT válido emitido por Supabase Auth.
 
 ### Health Check
 
@@ -258,34 +257,87 @@ DELETE /api/leads/:id
 - `400` - Invalid lead ID
 - `500` - Failed to delete lead
 
-### Panel de Administración (Web)
+### Endpoints Admin / Backoffice
 
-#### Ver todos los leads (Interfaz web)
-
-```http
-GET /admin/leads
-```
-
-Muestra una interfaz HTML con tabla de todos los leads capturados. Incluye:
-- Listado de leads con ID, fecha, operación, zona, presupuesto, nombre, contacto y resumen
-- Enlaces para ver detalle de cada lead
-- Botón para refrescar la lista
-
-#### Ver detalle de un lead (Interfaz web)
+#### Onboarding de tenant
 
 ```http
-GET /admin/leads/:id
+POST /admin/onboard
 ```
 
-Muestra página HTML con información detallada del lead específico.
+Payload recomendado:
 
-### Archivos estáticos
+```json
+{
+  "tenant": { "name": "Acme", "slug": "acme" },
+  "owner": { "email": "owner@acme.com", "password": "secret" },
+  "plan": { "plan_code": "pro" },
+  "channels": [
+    { "type": "email", "target": "alerts@acme.com", "is_default": true },
+    { "type": "whatsapp", "target": "+54911..." }
+  ]
+}
+```
+
+#### Tenants (admin)
 
 ```http
-GET /
+GET    /admin/tenants?page=1&limit=10
+PATCH  /admin/tenants/:id/status
+DELETE /admin/tenants/:id
 ```
 
-Sirve la interfaz web de chat desde `src/public/index.html`
+- `GET /admin/tenants` responde con `items`, `page`, `limit`, `total`, `totalPages`
+- `PATCH /admin/tenants/:id/status` acepta `status: active | disabled`
+- `DELETE /admin/tenants/:id` devuelve `409` si hay datos relacionados (guarded delete)
+
+#### Canales
+
+```http
+GET    /admin/tenants/:id/channels
+POST   /admin/tenants/:id/channels
+PATCH  /admin/channels/:channelId
+
+GET    /api/tenant/channels
+POST   /api/tenant/channels
+PATCH  /api/tenant/channels/:channelId
+```
+
+### Paginación
+
+Los endpoints listados soportan paginación por query params:
+
+- `GET /admin/tenants`
+- `GET /api/leads`
+- `GET /api/properties`
+
+Parámetros soportados: `page`, `limit` (o `pageSize`).
+Respuesta estándar:
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "limit": 10,
+  "total": 0,
+  "totalPages": 1
+}
+```
+
+### Filtrar propiedades por tenant
+
+`GET /api/properties` soporta `tenant_id` como query param para usuarios admin.
+
+Ejemplo:
+
+```http
+GET /api/properties?tenant_id=<tenant_uuid>&page=1&limit=10
+```
+
+Notas:
+- Para usuarios no admin, el backend ignora `tenant_id` de query y usa el `tenant_id` del perfil autenticado.
+- La respuesta mantiene el formato paginado (`items`, `page`, `limit`, `total`, `totalPages`).
+- Cada propiedad incluye `tenant_id` y `tenant_name` cuando el dato está disponible.
 
 ## Scripts npm
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getAllLeads, getLeadById, deleteLead } from "../repositories/leadRepo.js";
+import { getAllLeads, getLeadById, deleteLead, getLeadsPage } from "../repositories/leadRepo.js";
 import { type AuthenticatedRequest } from "../middleware/auth.js";
 import { getTenantIdForQuery, requireLeadId } from "../services/userService.js";
 
@@ -20,9 +20,29 @@ const leadsRouter = Router();
  *         schema:
  *           type: string
  *         description: Tenant ID (optional, for admin)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Page number (optional)
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Page size (optional)
+ *       - in: query
+ *         name: pageSize
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *         description: Alias for limit (optional)
  *     responses:
  *       200:
- *         description: List of leads retrieved successfully
+ *         description: List of leads retrieved successfully (paginated when page/pageSize/limit is provided)
  *         content:
  *           application/json:
  *             schema:
@@ -40,6 +60,24 @@ const leadsRouter = Router();
 leadsRouter.get("/api/leads", async (req: AuthenticatedRequest, res) => {
   try {
     const tenant_id = getTenantIdForQuery(req);
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || req.query.pageSize || 10);
+
+    if (req.query.page || req.query.pageSize || req.query.limit) {
+      const { items, total } = await getLeadsPage(tenant_id, page, limit);
+      const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+      const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : 10;
+      res.json({
+        items,
+        leads: items,
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / safeLimit)),
+      });
+      return;
+    }
+
     const leads = await getAllLeads(tenant_id);
     res.json({ leads });
   } catch (error: any) {
