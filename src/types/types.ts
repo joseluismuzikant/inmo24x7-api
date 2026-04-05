@@ -34,6 +34,8 @@ export type UpdateLeadInput = Partial<Omit<CreateLeadInput, "tenant_id" | "visit
 export type Property = {
   // Identificación
   id: string;
+  tenant_id?: string | null;
+  tenant_name?: string | null;
   posting_id?: string;
   
   // Información básica

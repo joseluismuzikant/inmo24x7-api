@@ -7,8 +7,15 @@ const options = {
     info: {
       title: "Inmo24x7 API",
       version: "0.1.0",
-      description: "API documentation for Inmo24x7 real estate chatbot service",
+      description: "Multi-tenant API for backoffice/admin operations, onboarding, leads, properties and channels",
     },
+    tags: [
+      { name: "Admin", description: "Admin-only tenant management endpoints" },
+      { name: "Tenant Channels", description: "Tenant notification channels" },
+      { name: "Leads", description: "Lead management endpoints" },
+      { name: "Properties", description: "Property listing endpoints" },
+      { name: "Auth", description: "Authentication/profile endpoints" },
+    ],
     servers: [
       {
         url: process.env.PUBLIC_API_URL || "http://localhost:3000",

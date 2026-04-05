@@ -21,6 +21,7 @@ async function loadPropertiesDB(tenant_id: string): Promise<Property[]> {
     .from("zp_postings")
     .select(`
       id,
+      tenant_id,
       url,
       title,
       operation_type,
@@ -112,6 +113,7 @@ export async function getAllProperties(tenant_id: string | null): Promise<Proper
     .from("zp_postings")
     .select(`
       id, url, title, operation_type, price_amount, price_currency,
+      tenant_id,
       real_estate_type, description, address_name, location_name,
       city_name, state_acronym, latitude, longitude, status,
       publisher_name, publisher_url, whatsapp, main_features, general_features
@@ -129,9 +131,59 @@ export async function getAllProperties(tenant_id: string | null): Promise<Proper
 
   if (!postings) return [];
 
+  const tenantNamesById = await getTenantNamesById(postings.map((posting: any) => posting.tenant_id));
+
   return postings
-    .map(mapPostingToProperty)
+    .map((posting: any) => mapPostingToProperty({
+      ...posting,
+      tenant_name: tenantNamesById.get(posting.tenant_id) || null,
+    }))
     .filter((p): p is Property => p !== null);
+}
+
+export async function getPropertiesPage(tenant_id: string | null, page = 1, limit = 10): Promise<{ items: Property[]; total: number }> {
+  const client = getSupabaseClient();
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : 10;
+  const from = (safePage - 1) * safeLimit;
+  const to = from + safeLimit - 1;
+
+  let query = client
+    .from("zp_postings")
+    .select(
+      `
+      id, url, title, operation_type, price_amount, price_currency,
+      tenant_id,
+      real_estate_type, description, address_name, location_name,
+      city_name, state_acronym, latitude, longitude, status,
+      publisher_name, publisher_url, whatsapp, main_features, general_features
+    `,
+      { count: "exact" }
+    )
+    .order("id", { ascending: false })
+    .range(from, to);
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+
+  const { data: postings, error, count } = await query;
+
+  if (error) {
+    throw new Error(`Failed to fetch properties page: ${error.message}`);
+  }
+
+  const tenantNamesById = await getTenantNamesById((postings || []).map((posting: any) => posting.tenant_id));
+
+  return {
+    items: (postings || [])
+      .map((posting: any) => mapPostingToProperty({
+        ...posting,
+        tenant_name: tenantNamesById.get(posting.tenant_id) || null,
+      }))
+      .filter((p): p is Property => p !== null),
+    total: count || 0,
+  };
 }
 
 export async function searchPropertiesInSupabase(args: {
@@ -214,6 +266,8 @@ function mapPostingToProperty(posting: any): Property | null {
 
   return {
     id: posting.id,
+    tenant_id: posting.tenant_id ?? null,
+    tenant_name: posting.tenant_name ?? null,
     posting_id: posting.id,
     operacion,
     zona: zona.trim(),
@@ -239,6 +293,21 @@ function mapPostingToProperty(posting: any): Property | null {
     phone1: posting.whatsapp,
     development_features: posting.general_features,
   };
+}
+
+async function getTenantNamesById(tenantIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const ids = Array.from(new Set(tenantIds.filter((id): id is string => Boolean(id))));
+  if (!ids.length) {
+    return new Map();
+  }
+
+  const client = getSupabaseClient();
+  const { data, error } = await client.from("tenants").select("id, name").in("id", ids);
+  if (error || !data) {
+    return new Map();
+  }
+
+  return new Map(data.map((tenant: any) => [tenant.id, tenant.name]));
 }
 
 export function clearPropertiesCache(tenant_id?: string): void {

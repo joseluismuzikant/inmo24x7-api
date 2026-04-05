@@ -150,6 +150,35 @@ export async function getAllLeads(tenant_id: string | null): Promise<Lead[]> {
   return data || [];
 }
 
+export async function getLeadsPage(tenant_id: string | null, page = 1, limit = 10): Promise<{ items: Lead[]; total: number }> {
+  const client = getSupabaseClient();
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(100, Math.floor(limit)) : 10;
+  const from = (safePage - 1) * safeLimit;
+  const to = from + safeLimit - 1;
+
+  let query = client
+    .from("leads")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(from, to);
+
+  if (tenant_id) {
+    query = query.eq("tenant_id", tenant_id);
+  }
+
+  const { data, error, count } = await query;
+
+  if (error) {
+    throw new Error(`Failed to get leads page: ${error.message}`);
+  }
+
+  return {
+    items: data || [],
+    total: count || 0,
+  };
+}
+
 export async function deleteLead(leadId: number, tenant_id: string | null): Promise<void> {
   const client = getSupabaseClient();
   
