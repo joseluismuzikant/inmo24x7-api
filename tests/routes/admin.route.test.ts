@@ -2,20 +2,48 @@ import express from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listLeadsMock, getLeadByIdMock } = vi.hoisted(() => ({
-  listLeadsMock: vi.fn(),
-  getLeadByIdMock: vi.fn(),
+const {
+  listTenantPlansMock,
+  listTenantsMock,
+  onboardTenantMock,
+  createTenantChannelMock,
+  listTenantChannelsMock,
+  updateChannelMock,
+  updateTenantStatusMock,
+  deleteTenantMock,
+  requireTenantIdMock,
+} = vi.hoisted(() => ({
+  listTenantPlansMock: vi.fn(),
+  listTenantsMock: vi.fn(),
+  onboardTenantMock: vi.fn(),
+  createTenantChannelMock: vi.fn(),
+  listTenantChannelsMock: vi.fn(),
+  updateChannelMock: vi.fn(),
+  updateTenantStatusMock: vi.fn(),
+  deleteTenantMock: vi.fn(),
+  requireTenantIdMock: vi.fn(),
 }));
 
-vi.mock("../../src/repositories/leadRepo.js", () => ({
-  listLeads: listLeadsMock,
-  getLeadById: getLeadByIdMock,
+vi.mock("../../src/services/adminTenants.js", () => ({
+  listTenantPlans: listTenantPlansMock,
+  listTenants: listTenantsMock,
+  onboardTenant: onboardTenantMock,
+  createTenantChannel: createTenantChannelMock,
+  listTenantChannels: listTenantChannelsMock,
+  updateChannel: updateChannelMock,
+  updateTenantStatus: updateTenantStatusMock,
+  deleteTenant: deleteTenantMock,
+}));
+
+vi.mock("../../src/services/userService.js", () => ({
+  requireTenantId: requireTenantIdMock,
 }));
 
 import { adminRouter } from "../../src/routes/admin.ts";
 
 function buildApp(user?: Record<string, unknown>) {
   const app = express();
+  app.use(express.json());
   app.use((req, _res, next) => {
     (req as any).user = user;
     next();
@@ -26,57 +54,28 @@ function buildApp(user?: Record<string, unknown>) {
 
 describe("admin routes", () => {
   beforeEach(() => {
-    listLeadsMock.mockResolvedValue([]);
-    getLeadByIdMock.mockResolvedValue(null);
+    vi.clearAllMocks();
+    listTenantPlansMock.mockResolvedValue([]);
+    listTenantsMock.mockResolvedValue({ items: [], page: 1, limit: 10, total: 0, totalPages: 1 });
   });
 
-  it("returns 401 when tenant id is missing", async () => {
-    const app = buildApp({});
+  it("forbids tenant plans for non-admin users", async () => {
+    const app = buildApp({ is_admin: false });
 
-    const res = await request(app).get("/admin/leads");
+    const res = await request(app).get("/admin/tenant-plans");
 
-    expect(res.status).toBe(401);
-    expect(res.body.error).toContain("Unauthorized");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("Forbidden");
   });
 
-  it("renders leads list HTML", async () => {
-    const app = buildApp({ tenant_id: "tenant-1" });
-    listLeadsMock.mockResolvedValue([
-      {
-        id: 10,
-        created_at: "2025-01-01T10:00:00Z",
-        operacion: "alquiler",
-        zona: "Palermo",
-        presupuesto_max: 500000,
-        nombre: "Ana",
-        contacto: "11223344",
-        summary: "Lead listo",
-      },
-    ]);
+  it("lists tenant plans for admin users", async () => {
+    const app = buildApp({ id: "admin-1", is_admin: true });
+    listTenantPlansMock.mockResolvedValue([{ tenant_id: "tenant-1", plan_code: "free" }]);
 
-    const res = await request(app).get("/admin/leads");
+    const res = await request(app).get("/admin/tenant-plans");
 
     expect(res.status).toBe(200);
-    expect(res.text).toContain("Leads capturados");
-    expect(res.text).toContain("/admin/leads/10");
-  });
-
-  it("returns 400 for invalid lead detail id", async () => {
-    const app = buildApp({ tenant_id: "tenant-1" });
-
-    const res = await request(app).get("/admin/leads/abc");
-
-    expect(res.status).toBe(400);
-    expect(res.text).toContain("ID inválido");
-  });
-
-  it("returns 404 when lead detail is missing", async () => {
-    const app = buildApp({ tenant_id: "tenant-1" });
-    getLeadByIdMock.mockResolvedValue(null);
-
-    const res = await request(app).get("/admin/leads/99");
-
-    expect(res.status).toBe(404);
-    expect(res.text).toContain("Lead no encontrado");
+    expect(res.body.items).toEqual([{ tenant_id: "tenant-1", plan_code: "free" }]);
+    expect(listTenantPlansMock).toHaveBeenCalledTimes(1);
   });
 });

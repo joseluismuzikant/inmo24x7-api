@@ -363,6 +363,10 @@ Para desarrollo con re-ejecución automática:
 npm run test:watch
 ```
 
+La suite cubre rutas, servicios, repositorios y middleware.
+
+En CI/CD, el workflow de build/deploy ejecuta `npm test` antes de construir/publicar la imagen Docker; si fallan tests, el build falla.
+
 ## Docker
 
 ### Construir imagen
