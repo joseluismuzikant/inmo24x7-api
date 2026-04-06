@@ -197,7 +197,10 @@ adminRouter.post("/admin/onboard", requireAdmin, async (req: AuthenticatedReques
  */
 adminRouter.post("/admin/tenants/:id/channels", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const data = await createTenantChannel(req.params.id, req.body || {});
+    const data = await createTenantChannel(req.params.id, req.body || {}, {
+      actorUserId: req.user?.id,
+      actorType: "admin",
+    });
     return res.status(201).json(data);
   } catch (err: any) {
     if (err.message?.includes("Missing fields")) {
@@ -236,7 +239,10 @@ adminRouter.get("/admin/tenants/:id/channels", requireAdmin, async (req: Authent
  */
 adminRouter.patch("/admin/channels/:channelId", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const data = await updateChannel(req.params.channelId, req.body);
+    const data = await updateChannel(req.params.channelId, req.body, undefined, {
+      actorUserId: req.user?.id,
+      actorType: "admin",
+    });
     return res.json(data);
   } catch (err: any) { return res.status(500).json({ error: err.message }); }
 });
@@ -349,7 +355,10 @@ adminRouter.patch("/admin/tenants/:id/status", requireAdmin, async (req: Authent
   }
 
   try {
-    const data = await updateTenantStatus(req.params.id, status);
+    const data = await updateTenantStatus(req.params.id, status, {
+      actorUserId: req.user?.id,
+      actorType: "admin",
+    });
     return res.json(data);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -381,7 +390,10 @@ adminRouter.patch("/admin/tenants/:id/status", requireAdmin, async (req: Authent
 
 adminRouter.delete("/admin/tenants/:id", requireAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const data = await deleteTenant(req.params.id);
+    const data = await deleteTenant(req.params.id, {
+      actorUserId: req.user?.id,
+      actorType: "admin",
+    });
     return res.json(data);
   } catch (err: any) {
     if (typeof err.message === "string" && err.message.startsWith("TENANT_DELETE_BLOCKED:")) {
@@ -456,7 +468,10 @@ adminRouter.get("/api/tenant/channels", async (req: AuthenticatedRequest, res: R
 adminRouter.post("/api/tenant/channels", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const tenantId = requireTenantId(req);
-    const item = await createTenantChannel(tenantId, req.body || {});
+    const item = await createTenantChannel(tenantId, req.body || {}, {
+      actorUserId: req.user?.id,
+      actorType: req.user?.is_admin ? "admin" : "tenant_user",
+    });
     return res.status(201).json(item);
   } catch (err: any) {
     if (err.message?.includes("Unauthorized") || err.message?.includes("Missing fields")) {
@@ -504,7 +519,10 @@ adminRouter.post("/api/tenant/channels", async (req: AuthenticatedRequest, res: 
 adminRouter.patch("/api/tenant/channels/:channelId", async (req: AuthenticatedRequest, res: Response) => {
   try {
     const tenantId = requireTenantId(req);
-    const item = await updateChannel(req.params.channelId, req.body || {}, tenantId);
+    const item = await updateChannel(req.params.channelId, req.body || {}, tenantId, {
+      actorUserId: req.user?.id,
+      actorType: req.user?.is_admin ? "admin" : "tenant_user",
+    });
     return res.json(item);
   } catch (err: any) {
     if (err.message?.includes("Unauthorized")) {

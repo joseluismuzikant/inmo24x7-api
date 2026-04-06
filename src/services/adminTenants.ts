@@ -2,6 +2,11 @@ import { getSupabaseClient } from "../lib/supabase.js";
 
 const supabase = getSupabaseClient();
 
+type AuditContext = {
+  actorUserId?: string | null;
+  actorType?: "admin" | "tenant_user" | "system";
+};
+
 type PaginationResult<T> = {
   items: T[];
   page: number;
@@ -29,6 +34,32 @@ const normalizeChannel = (row: any) => ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
+
+async function logAudit(args: {
+  actorUserId?: string | null;
+  actorType?: "admin" | "tenant_user" | "system";
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  tenantId?: string | null;
+  payload?: Record<string, any>;
+}) {
+  const { error } = await supabase.from("audit_log").insert([
+    {
+      actor_user_id: args.actorUserId || null,
+      actor_type: args.actorType || "system",
+      action: args.action,
+      entity_type: args.entityType,
+      entity_id: args.entityId || null,
+      tenant_id: args.tenantId || null,
+      payload: args.payload || {},
+    },
+  ]);
+
+  if (error) {
+    throw error;
+  }
+}
 
 function normalizeOnboardingPayload(body: any) {
   const tenant = body?.tenant || {
@@ -202,15 +233,16 @@ export async function onboardTenant(body: any, userId: string) {
   }
 
   // 6. Log
-  const { error: auditError } = await supabase.from("audit_log").insert([{
-    actor_user_id: userId,
-    actor_type: "admin",
-    action: "tenant_onboarded",
-    entity_type: "tenant",
-    entity_id: tenantId,
-    payload: { owner_email: owner.email, slug: tenant.slug }
-  }]);
-  if (auditError) {
+  try {
+    await logAudit({
+      actorUserId: userId,
+      actorType: "admin",
+      action: "tenant_onboarded",
+      entityType: "tenant",
+      entityId: tenantId,
+      payload: { owner_email: owner.email, slug: tenant.slug, plan_code: plan.plan_code },
+    });
+  } catch (auditError) {
     await supabase.from("tenant_channels").delete().eq("tenant_id", tenantId);
     await supabase.from("tenant_plans").delete().eq("tenant_id", tenantId);
     await supabase.from("profiles").delete().eq("user_id", user_id);
@@ -222,7 +254,7 @@ export async function onboardTenant(body: any, userId: string) {
   return { tenant_id: tenantId, owner_user_id: user_id, owner_email: owner.email };
 }
 
-export async function createTenantChannel(tenantId: string, data: any) {
+export async function createTenantChannel(tenantId: string, data: any, auditContext?: AuditContext) {
   const type = data?.type || data?.channel_type;
   const target = data?.target || data?.destination;
   const event = data?.event || "new_lead";
@@ -248,7 +280,24 @@ export async function createTenantChannel(tenantId: string, data: any) {
     .single();
 
   if (error) throw error;
-  return normalizeChannel(channel);
+  const normalized = normalizeChannel(channel);
+  await logAudit({
+    actorUserId: auditContext?.actorUserId,
+    actorType: auditContext?.actorType,
+    action: "tenant_channel_created",
+    entityType: "tenant_channel",
+    entityId: normalized.id,
+    tenantId,
+    payload: {
+      type: normalized.type,
+      target: normalized.target,
+      event: normalized.event,
+      is_active: normalized.is_active,
+      is_default: normalized.is_default,
+    },
+  });
+
+  return normalized;
 }
 
 export async function listTenantChannels(tenantId: string) {
@@ -262,7 +311,7 @@ export async function listTenantChannels(tenantId: string) {
   return (data || []).map(normalizeChannel);
 }
 
-export async function updateChannel(channelId: string, data: any, tenantId?: string) {
+export async function updateChannel(channelId: string, data: any, tenantId?: string, auditContext?: AuditContext) {
   const updatePayload: Record<string, any> = { ...data };
   if (updatePayload.target !== undefined) {
     updatePayload.destination = updatePayload.target;
@@ -285,7 +334,18 @@ export async function updateChannel(channelId: string, data: any, tenantId?: str
   const { data: channel, error } = await query.select().single();
 
   if (error) throw error;
-  return normalizeChannel(channel);
+  const normalized = normalizeChannel(channel);
+  await logAudit({
+    actorUserId: auditContext?.actorUserId,
+    actorType: auditContext?.actorType,
+    action: "tenant_channel_updated",
+    entityType: "tenant_channel",
+    entityId: normalized.id,
+    tenantId: normalized.tenant_id || tenantId || null,
+    payload: updatePayload,
+  });
+
+  return normalized;
 }
 
 export async function listTenants(page = 1, limit = 10): Promise<PaginationResult<any>> {
@@ -334,7 +394,7 @@ export async function listTenants(page = 1, limit = 10): Promise<PaginationResul
   };
 }
 
-export async function updateTenantStatus(tenantId: string, status: "active" | "disabled") {
+export async function updateTenantStatus(tenantId: string, status: "active" | "disabled", auditContext?: AuditContext) {
   const { data, error } = await supabase
     .from("tenants")
     .update({ status })
@@ -343,6 +403,16 @@ export async function updateTenantStatus(tenantId: string, status: "active" | "d
     .single();
 
   if (error) throw error;
+
+  await logAudit({
+    actorUserId: auditContext?.actorUserId,
+    actorType: auditContext?.actorType,
+    action: "tenant_status_updated",
+    entityType: "tenant",
+    entityId: tenantId,
+    payload: { status },
+  });
+
   return data;
 }
 
@@ -356,7 +426,7 @@ export async function listTenantPlans() {
   return data || [];
 }
 
-export async function deleteTenant(tenantId: string) {
+export async function deleteTenant(tenantId: string, auditContext?: AuditContext) {
   const tablesToGuard = ["leads", "zp_postings"] as const;
   for (const table of tablesToGuard) {
     const { count, error } = await supabase
@@ -397,11 +467,23 @@ export async function deleteTenant(tenantId: string) {
   const { error: profilesError } = await supabase.from("profiles").delete().eq("tenant_id", tenantId);
   if (profilesError) throw profilesError;
 
-  const { error: auditError } = await supabase.from("audit_log").delete().eq("entity_id", tenantId);
-  if (auditError) throw auditError;
+  const { error: clearTenantRefError } = await supabase
+    .from("audit_log")
+    .update({ tenant_id: null })
+    .eq("tenant_id", tenantId);
+  if (clearTenantRefError) throw clearTenantRefError;
 
   const { error: tenantError } = await supabase.from("tenants").delete().eq("id", tenantId);
   if (tenantError) throw tenantError;
+
+  await logAudit({
+    actorUserId: auditContext?.actorUserId,
+    actorType: auditContext?.actorType,
+    action: "tenant_deleted",
+    entityType: "tenant",
+    entityId: tenantId,
+    payload: { deleted: true },
+  });
 
   return { deleted: true };
 }
