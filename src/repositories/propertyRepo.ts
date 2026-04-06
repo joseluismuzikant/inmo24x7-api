@@ -248,6 +248,120 @@ export async function searchPropertiesInSupabase(args: {
   return postings.map(mapPostingToProperty).filter((p): p is Property => p !== null);
 }
 
+export async function upsertPropertyForTenant(tenantId: string, property: Record<string, any>): Promise<{ action: "inserted" | "updated"; id: string }> {
+  const client = getSupabaseClient();
+  const propertyId = String(property.id || "").trim();
+  if (!propertyId) {
+    throw new Error("Property id is required");
+  }
+
+  const { data: existing, error: existingError } = await client
+    .from("zp_postings")
+    .select("id, tenant_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(`Failed to verify existing property: ${existingError.message}`);
+  }
+
+  if (existing?.tenant_id && existing.tenant_id !== tenantId) {
+    throw new Error("Property id already belongs to another tenant");
+  }
+
+  const payload = {
+    id: propertyId,
+    tenant_id: tenantId,
+    source: property.source || property.raw_json?.source || "manual_upload",
+    posting_code: property.posting_code || null,
+    url: String(property.url || "").trim(),
+    title: String(property.title || "").trim(),
+    operation_type: String(property.operation_type || "").trim().toLowerCase(),
+    operation_type_id: property.operation_type_id || null,
+    price_amount: Number(property.price_amount),
+    price_currency: String(property.price_currency || "").trim().toUpperCase(),
+    expenses_amount: property.expenses_amount !== undefined && property.expenses_amount !== null
+      ? Number(property.expenses_amount)
+      : null,
+    expenses_currency: property.expenses_currency ? String(property.expenses_currency).trim().toUpperCase() : null,
+    real_estate_type: String(property.real_estate_type || "").trim(),
+    real_estate_type_id: property.real_estate_type_id || null,
+    description: property.description || null,
+    address_name: String(property.address_name || "").trim(),
+    location_id: property.location_id || null,
+    location_name: property.location_name || null,
+    city_name: property.city_name || null,
+    state_acronym: property.state_acronym || null,
+    country_name: property.country_name || null,
+    latitude: property.latitude !== undefined ? Number(property.latitude) : null,
+    longitude: property.longitude !== undefined ? Number(property.longitude) : null,
+    status: property.status || "active",
+    posting_type: property.posting_type || null,
+    premier: property.premier ?? null,
+    publisher_id: property.publisher_id || null,
+    publisher_name: property.publisher_name || null,
+    publisher_url: property.publisher_url || null,
+    publisher_type_id: property.publisher_type_id || null,
+    publisher_slug: property.publisher_slug || null,
+    publisher_premier: property.publisher_premier ?? null,
+    whatsapp: property.whatsapp || null,
+    modified_date: property.modified_date || null,
+    main_features: property.main_features && typeof property.main_features === "object" ? property.main_features : {},
+    general_features: property.general_features && typeof property.general_features === "object" ? property.general_features : {},
+    development_features: property.development_features && typeof property.development_features === "object" ? property.development_features : {},
+    highlighted_features: property.highlighted_features && typeof property.highlighted_features === "object" ? property.highlighted_features : {},
+    flags_features: property.flags_features && typeof property.flags_features === "object" ? property.flags_features : {},
+    raw_json: property.raw_json && typeof property.raw_json === "object" ? property.raw_json : {},
+  };
+
+  const { error: upsertError } = await client
+    .from("zp_postings")
+    .upsert(payload, { onConflict: "id" });
+
+  if (upsertError) {
+    throw new Error(`Failed to upsert property: ${upsertError.message}`);
+  }
+
+  clearPropertiesCache(tenantId);
+
+  return {
+    action: existing ? "updated" : "inserted",
+    id: propertyId,
+  };
+}
+
+export async function deletePropertyById(
+  propertyId: string,
+  options: { tenantId?: string | null; isAdmin: boolean }
+): Promise<{ deleted: true; id: string }> {
+  const client = getSupabaseClient();
+  const id = String(propertyId || "").trim();
+  if (!id) {
+    throw new Error("INVALID_PROPERTY_ID");
+  }
+
+  let query = client.from("zp_postings").delete().eq("id", id);
+  if (!options.isAdmin) {
+    query = query.eq("tenant_id", options.tenantId || "");
+  }
+
+  const { data, error } = await query.select("id, tenant_id").maybeSingle();
+  if (error) {
+    throw new Error(`Failed to delete property: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("PROPERTY_NOT_FOUND");
+  }
+
+  if (options.isAdmin) {
+    clearPropertiesCache();
+  } else if (options.tenantId) {
+    clearPropertiesCache(options.tenantId);
+  }
+
+  return { deleted: true, id };
+}
+
 function mapPostingToProperty(posting: any): Property | null {
   const operacion = parseOperacion(posting.operation_type || "");
   if (!operacion) return null;

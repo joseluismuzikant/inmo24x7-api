@@ -8,7 +8,8 @@ export const messageRouter = Router();
 
 const MessageSchema = z.object({
   userId: z.string().min(1),
-  text: z.string().min(1)
+  text: z.string().min(1),
+  tenantId: z.string().uuid().min(1),
 });
 
 const DEFAULT_SOURCE_TYPE: SourceType = (process.env.DEFAULT_SOURCE_TYPE as SourceType) || 'web_chat';
@@ -27,7 +28,16 @@ const DEFAULT_SOURCE_TYPE: SourceType = (process.env.DEFAULT_SOURCE_TYPE as Sour
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/MessageRequest'
+ *             type: object
+ *             required: [userId, text, tenantId]
+ *             properties:
+ *               userId:
+ *                 type: string
+ *               text:
+ *                 type: string
+ *               tenantId:
+ *                 type: string
+ *                 format: uuid
  *     responses:
  *       200:
  *         description: Bot response received successfully
@@ -56,13 +66,18 @@ messageRouter.post("/message", async (req: AuthenticatedRequest, res) => {
       return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
     }
 
-    const { userId, text } = parsed.data;
-    
-    // Get tenant and source from auth token
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) {
-      return res.status(401).json({ error: "Unauthorized - No tenant_id" });
+    const { userId, text, tenantId } = parsed.data;
+
+    const authTenantId = req.user?.tenant_id;
+    if (!req.user?.is_admin) {
+      if (!authTenantId) {
+        return res.status(401).json({ error: "Unauthorized - No tenant_id" });
+      }
+      if (authTenantId !== tenantId) {
+        return res.status(403).json({ error: "Forbidden - tenant mismatch" });
+      }
     }
+
     console.log(`Received message from userId: ${userId}, tenantId: ${tenantId}`);
     const sourceType = req.user?.source_type || DEFAULT_SOURCE_TYPE;
 

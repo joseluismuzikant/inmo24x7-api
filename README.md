@@ -172,9 +172,12 @@ Content-Type: application/json
 
 {
   "userId": "usuario-123",
-  "text": "Hola, busco un departamento"
+  "text": "Hola, busco un departamento",
+  "tenantId": "11111111-1111-1111-1111-111111111111"
 }
 ```
+
+`tenantId` es obligatorio y define el tenant sobre el que responde el bot.
 
 **Response:**
 ```json
@@ -311,6 +314,12 @@ Los endpoints listados soportan paginación por query params:
 - `GET /api/leads`
 - `GET /api/properties`
 
+Tambien se soporta borrado de propiedades:
+
+- `DELETE /api/properties/:id`
+  - Admin: puede borrar por `id`
+  - Tenant: solo puede borrar propiedades de su propio tenant
+
 Parámetros soportados: `page`, `limit` (o `pageSize`).
 Respuesta estándar:
 
@@ -338,6 +347,59 @@ Notas:
 - Para usuarios no admin, el backend ignora `tenant_id` de query y usa el `tenant_id` del perfil autenticado.
 - La respuesta mantiene el formato paginado (`items`, `page`, `limit`, `total`, `totalPages`).
 - Cada propiedad incluye `tenant_id` y `tenant_name` cuando el dato está disponible.
+
+### Importar propiedades por JSON
+
+`POST /api/properties/import-json` permite importar propiedades para el tenant autenticado.
+
+Payload ejemplo:
+
+```json
+{
+  "properties": [
+    {
+      "id": "prop-palermo-001",
+      "url": "https://inmo24x7.com/properties/prop-palermo-001",
+      "title": "Departamento 3 ambientes con balcón en Palermo",
+      "operation_type": "venta",
+      "price_amount": 120000,
+      "price_currency": "USD",
+      "real_estate_type": "departamento",
+      "address_name": "Palermo, CABA"
+    }
+  ]
+}
+```
+
+Campos requeridos por propiedad:
+
+- `id`
+- `url`
+- `title`
+- `operation_type`
+- `price_amount`
+- `price_currency`
+- `real_estate_type`
+- `address_name`
+
+Notas:
+
+- El backend siempre asocia cada propiedad al `tenant_id` del usuario autenticado.
+- Si el usuario es admin, debe enviar `tenant_id` en el payload para indicar a qué tenant importar.
+- Si una propiedad falla, el proceso continúa con las demás.
+- Respuesta resumen:
+
+```json
+{
+  "total": 10,
+  "inserted": 8,
+  "updated": 1,
+  "failed": 1,
+  "errors": [
+    { "index": 4, "id": "prop-5", "message": "Missing/invalid required fields: price_amount" }
+  ]
+}
+```
 
 ## Scripts npm
 
