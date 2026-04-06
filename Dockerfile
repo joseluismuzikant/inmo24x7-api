@@ -23,10 +23,12 @@ WORKDIR /app
 
 ARG APP_VERSION=dev
 ARG APP_COMMIT_SHA=local
+ARG APP_BUILD_DATE=local
 
 ENV NODE_ENV=production \
     APP_VERSION=$APP_VERSION \
-    APP_COMMIT_SHA=$APP_COMMIT_SHA
+    APP_COMMIT_SHA=$APP_COMMIT_SHA \
+    APP_BUILD_DATE=$APP_BUILD_DATE
 
 # Optional: if you use native modules, this keeps compatibility
 RUN apk add --no-cache libc6-compat

@@ -50,9 +50,11 @@ jobs:
         run: |
           BRANCH="${GITHUB_REF_NAME//\//-}"
           APP_VERSION="$(node -p "require('./package.json').version")"
+          APP_BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           echo "branch_tag=branch-${BRANCH}" >> $GITHUB_OUTPUT
           echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
           echo "app_commit_sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "app_build_date=${APP_BUILD_DATE}" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -72,6 +74,7 @@ jobs:
           build-args: |
             APP_VERSION=${{ steps.vars.outputs.app_version }}
             APP_COMMIT_SHA=${{ steps.vars.outputs.app_commit_sha }}
+            APP_BUILD_DATE=${{ steps.vars.outputs.app_build_date }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}

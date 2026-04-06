@@ -5,6 +5,7 @@ export const healthRouter = Router();
 
 const appVersion = process.env.APP_VERSION ?? "dev";
 const appCommitSha = process.env.APP_COMMIT_SHA ?? "local";
+const appBuildDate = process.env.APP_BUILD_DATE ?? "local";
 
 healthRouter.get("/health", (_req, res) => {
   res.json({
@@ -12,6 +13,7 @@ healthRouter.get("/health", (_req, res) => {
     service: "inmo24x7-api",
     version: appVersion,
     commit: appCommitSha,
+    build_date: appBuildDate,
   });
 });
 
