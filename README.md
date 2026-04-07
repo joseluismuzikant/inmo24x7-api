@@ -132,7 +132,10 @@ GET /health
 ```json
 {
   "ok": true,
-  "service": "inmo24x7-api"
+  "service": "inmo24x7-api",
+  "version": "0.1.0",
+  "commit": "8f3c...",
+  "build_date": "2026-04-05T21:40:00Z"
 }
 ```
 
