@@ -1,8 +1,7 @@
-name: Build (auto) + Deploy to DigitalOcean (manual)
+name: Build (auto) + Deploy to Cloud Provider (manual)
 
 on:
   push:
-    # ✅ build de cualquier rama (para poder desplegar “cualquier build” a mano)
     branches: ["**"]
 
   workflow_dispatch:
@@ -14,16 +13,16 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # ej: joseluismuzikant/inmo24x7-api
+  IMAGE_NAME: ${{ github.repository }}
   CONTAINER_NAME: inmo24x7-api
-  # OJO: NO usar ~ acá porque en el droplet lo vamos a expandir con $HOME
-  DROPLET_ENV_FILE: inmo24x7-api/.env
+  CLOUD_ENV_FILE: inmo24x7-api/.env
 
 jobs:
   build:
     name: Build & Push to GHCR
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
@@ -44,17 +43,21 @@ jobs:
       - name: Run unit tests
         run: npm test
 
-      # ✅ armamos tag de rama compatible con Docker (reemplaza / por -)
       - name: Compute branch tag
         id: vars
         run: |
           BRANCH="${GITHUB_REF_NAME//\//-}"
           APP_VERSION="$(node -p "require('./package.json').version")"
           APP_BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          echo "branch_tag=branch-${BRANCH}" >> $GITHUB_OUTPUT
-          echo "app_version=${APP_VERSION}" >> $GITHUB_OUTPUT
-          echo "app_commit_sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-          echo "app_build_date=${APP_BUILD_DATE}" >> $GITHUB_OUTPUT
+
+          echo "branch_tag=branch-${BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "app_commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          echo "app_build_date=${APP_BUILD_DATE}" >> "$GITHUB_OUTPUT"
+
+      # Required to build ARM64 images from GitHub's AMD64 runner
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -71,22 +74,30 @@ jobs:
         with:
           context: .
           push: true
+
+          # Oracle Ampere = ARM64
+          # Keep AMD64 so the image also works on DigitalOcean / x86
+          platforms: linux/amd64,linux/arm64
+
           build-args: |
             APP_VERSION=${{ steps.vars.outputs.app_version }}
             APP_COMMIT_SHA=${{ steps.vars.outputs.app_commit_sha }}
             APP_BUILD_DATE=${{ steps.vars.outputs.app_build_date }}
+
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.branch_tag }}
+
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy to DigitalOcean (manual)
+    name: Deploy to Cloud (manual)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: prod
+
     permissions:
       contents: read
       packages: read
@@ -95,9 +106,10 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ secrets.DIGITALOCEAN_HOST }}
-          username: ${{ secrets.DIGITALOCEAN_USERNAME }}
-          key: ${{ secrets.DIGITALOCEAN_SSH_KEY }}
+          host: ${{ secrets.CLOUD_HOST }}
+          username: ${{ secrets.CLOUD_USERNAME }}
+          key: ${{ secrets.CLOUD_SSH_KEY }}
+
           script: |
             set -euo pipefail
 
@@ -106,29 +118,27 @@ jobs:
 
             echo "Deploying ${IMAGE}"
 
-            # Expandimos ruta real del env file en el droplet
-            ENV_FILE="$HOME/${{ env.DROPLET_ENV_FILE }}"
+            ENV_FILE="$HOME/${{ env.CLOUD_ENV_FILE }}"
 
-            # Validar env file en droplet
             if [ ! -f "$ENV_FILE" ]; then
-              echo "ERROR: No existe el env file en el droplet: $ENV_FILE"
-              echo "Crealo con PORT, OPENAI_API_KEY, OPENAI_MODEL, PROPERTY_LOADER, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY"
+              echo "ERROR: Environment file does not exist: $ENV_FILE"
+              echo "Create it with PORT, OPENAI_API_KEY, OPENAI_MODEL, PROPERTY_LOADER, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
               exit 1
             fi
 
-            # Leer PORT del env file (para mapear el puerto host:container)
             set -a
             . "$ENV_FILE"
             set +a
+
             PORT="${PORT:-3000}"
 
-            # Login a GHCR desde el droplet (PAT)
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+            echo "${{ secrets.GHCR_PAT }}" | \
+              docker login ghcr.io \
+              -u "${{ github.repository_owner }}" \
+              --password-stdin
 
-            # (Opcional pero útil) validar que el tag exista
             if ! docker manifest inspect "${IMAGE}" >/dev/null 2>&1; then
-              echo "ERROR: La imagen/tag no existe en GHCR: ${IMAGE}"
-              echo "Asegurate de haber pusheado esa rama/commit para que se buildée y publique."
+              echo "ERROR: Image/tag does not exist in GHCR: ${IMAGE}"
               exit 1
             fi
 
@@ -149,4 +159,5 @@ jobs:
               node --experimental-specifier-resolution=node dist/index.js
 
             docker image prune -f
+
             docker ps --filter "name=${{ env.CONTAINER_NAME }}"
